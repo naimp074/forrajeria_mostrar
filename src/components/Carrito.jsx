@@ -1,0 +1,244 @@
+import { useState } from 'react';
+
+function parsePrecio(val) {
+  if (typeof val === 'number') return Number.isFinite(val) ? val : 0;
+  if (typeof val === 'string') return parseInt(val.replace(/[^\d]/g, ''), 10) || 0;
+  return 0;
+}
+
+function formatPrecio(num) {
+  return '$' + num.toLocaleString('es-AR').replace(/,/g, '.');
+}
+
+const IconoCarrito = () => (
+  <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+  </svg>
+);
+
+const IconoEfectivo = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2h-2m-4-1v8m0-8V7a2 2 0 012-2h2a2 2 0 012 2v1" />
+  </svg>
+);
+
+const IconoTarjeta = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+  </svg>
+);
+
+const IconoTransfer = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+  </svg>
+);
+
+const METODOS_PAGO = [
+  { id: 'efectivo', label: 'Efectivo', Icon: IconoEfectivo },
+  { id: 'tarjeta', label: 'Tarjeta', Icon: IconoTarjeta },
+  { id: 'transfer', label: 'Transfer', Icon: IconoTransfer },
+];
+
+export default function Carrito({
+  items = [],
+  vacio,
+  titulo = 'Carrito',
+  botonTexto = 'Procesar Venta',
+  onProcesarVenta,
+  onBorrar,
+  onEditarCantidad,
+}) {
+  const [metodoPago, setMetodoPago] = useState('efectivo');
+  const [cliente, setCliente] = useState('Cliente General');
+  const [editandoId, setEditandoId] = useState(null);
+  const [cantidadEdit, setCantidadEdit] = useState(1);
+  const mostrarVacio = vacio ?? items.length === 0;
+
+  const totalNumerico =
+    items.length > 0
+      ? items.reduce((sum, i) => sum + i.cantidad * parsePrecio(i.precioUnitario), 0)
+      : 0;
+  const totalFormato = totalNumerico > 0 ? formatPrecio(totalNumerico) : '$0.00';
+
+  const iniciarEdicion = (item) => {
+    setEditandoId(item.id);
+    setCantidadEdit(item.cantidad);
+  };
+  const aplicarEdicion = (id) => {
+    if (cantidadEdit < 1) {
+      onBorrar?.(id);
+    } else {
+      onEditarCantidad?.(id, cantidadEdit);
+    }
+    setEditandoId(null);
+  };
+
+  return (
+    <div className="rounded-2xl sm:rounded-3xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
+      <div className="flex items-center gap-2">
+        <IconoCarrito />
+        <h2 className="text-lg sm:text-xl font-bold">{titulo}</h2>
+      </div>
+
+      <div className="mt-3 sm:mt-4">
+        <label className="block text-sm font-medium text-slate-600 mb-1.5">
+          Cliente (Opcional)
+        </label>
+        <div className="relative">
+          <select
+            value={cliente}
+            onChange={(e) => setCliente(e.target.value)}
+            className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 sm:py-3 pl-4 pr-10 text-slate-800 text-sm sm:text-base appearance-none cursor-pointer focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400"
+          >
+            <option>Cliente General</option>
+            <option>Juan Pérez</option>
+            <option>La Escondida</option>
+            <option>Carlos Gómez</option>
+          </select>
+          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-3 sm:mt-4">
+        <label className="block text-sm font-medium text-slate-600 mb-2">
+          Método de Pago
+        </label>
+        <div className="grid grid-cols-3 gap-2 sm:flex sm:gap-2">
+          {METODOS_PAGO.map((metodo) => {
+            const { id, label, Icon: PagoIcon } = metodo;
+            return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setMetodoPago(id)}
+              className={`flex flex-col items-center gap-1 sm:gap-1.5 rounded-xl border py-2.5 sm:py-3 px-1 sm:px-2 transition ${
+                metodoPago === id
+                  ? 'bg-emerald-50 border-emerald-400 text-emerald-700'
+                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <PagoIcon />
+              <span className="text-xs sm:text-sm font-semibold">{label}</span>
+            </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="border-t border-slate-200 my-3 sm:my-4" />
+
+      <div className="min-h-[100px] sm:min-h-[120px] flex flex-col justify-center">
+        {mostrarVacio ? (
+          <p className="text-slate-400 text-center py-4 sm:py-6 text-sm sm:text-base">Carrito vacío</p>
+        ) : (
+          <div className="space-y-2">
+            {items.map((item) => {
+              const detalle = `${item.cantidad} x ${item.precioUnitario}`;
+              const totalItem = formatPrecio(item.cantidad * parsePrecio(item.precioUnitario));
+              const estaEditando = editandoId === item.id;
+              return (
+                <div
+                  key={item.id}
+                  className="rounded-xl bg-slate-50 border border-slate-100 p-2.5 sm:p-3"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-slate-800 text-sm sm:text-base truncate">{item.nombre}</div>
+                      {estaEditando ? (
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <div className="flex items-center rounded-lg border border-slate-200 bg-white">
+                            <button
+                              type="button"
+                              onClick={() => setCantidadEdit((c) => Math.max(1, c - 1))}
+                              className="px-2 sm:px-2.5 py-1 text-slate-600 hover:bg-slate-100 rounded-l-lg touch-manipulation"
+                            >
+                              −
+                            </button>
+                            <input
+                              type="number"
+                              min={1}
+                              value={cantidadEdit}
+                              onChange={(e) =>
+                                setCantidadEdit(Math.max(1, parseInt(e.target.value, 10) || 1))
+                              }
+                              className="w-12 sm:w-14 py-1 text-center text-sm border-0 bg-transparent"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setCantidadEdit((c) => c + 1)}
+                              className="px-2 sm:px-2.5 py-1 text-slate-600 hover:bg-slate-100 rounded-r-lg touch-manipulation"
+                            >
+                              +
+                            </button>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => aplicarEdicion(item.id)}
+                            className="text-sm font-medium text-emerald-600 hover:underline"
+                          >
+                            Listo
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="text-xs sm:text-sm text-slate-500">{detalle}</div>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-1.5 shrink-0">
+                      <span className="font-bold text-slate-800 text-sm sm:text-base">{totalItem}</span>
+                      {!estaEditando && (
+                        <div className="flex items-center gap-1 sm:gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => iniciarEdicion(item)}
+                            className="rounded-lg px-2 sm:px-2.5 py-1 sm:py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 touch-manipulation"
+                            title="Editar cantidad"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onBorrar?.(item.id)}
+                            className="rounded-lg px-2 sm:px-2.5 py-1 sm:py-1.5 text-xs font-medium text-red-600 bg-white border border-red-200 hover:bg-red-50 touch-manipulation"
+                            title="Quitar del carrito"
+                          >
+                            Borrar
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="border-t border-slate-200 my-3 sm:my-4" />
+
+      <div className="flex items-center justify-between mb-3 sm:mb-4">
+        <span className="font-bold text-slate-800 text-sm sm:text-base">Total:</span>
+        <span className="text-lg sm:text-xl font-bold text-emerald-600">{totalFormato}</span>
+      </div>
+      <button
+        type="button"
+        onClick={() =>
+          onProcesarVenta?.({
+            cliente,
+            metodoPago,
+            items,
+            totalNumerico,
+          })
+        }
+        className="w-full rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-3 sm:py-3.5 text-sm sm:text-base transition shadow-sm touch-manipulation"
+      >
+        {botonTexto}
+      </button>
+    </div>
+  );
+}
