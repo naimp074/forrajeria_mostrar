@@ -1,10 +1,11 @@
+/** precioKg = pesos por kg al granel (venta suelta). price = unidad bolsa/fardo. */
 export const quickProducts = [
-  { name: 'Maíz', price: '$2.000', precioCompra: 1500, stock: '120 bolsas', favorite: true },
-  { name: 'Alfalfa', price: '$2.500', precioCompra: 1800, stock: '45 fardos', favorite: true },
-  { name: 'Balanceado', price: '$3.200', precioCompra: 2400, stock: '80 bolsas', favorite: true },
-  { name: 'Avena', price: '$1.900', precioCompra: 1400, stock: '34 bolsas', favorite: false },
-  { name: 'Pellets', price: '$2.800', precioCompra: 2100, stock: '25 bolsas', favorite: false },
-  { name: 'Sal Mineral', price: '$1.500', precioCompra: 1100, stock: '5 bolsas', favorite: false },
+  { name: 'Maíz', price: '$2.000', precioKg: 45, precioCompra: 1500, stock: '120 bolsas', favorite: true },
+  { name: 'Alfalfa', price: '$2.500', precioKg: 120, precioCompra: 1800, stock: '45 fardos', favorite: true },
+  { name: 'Balanceado', price: '$3.200', precioKg: 4000, precioCompra: 2400, stock: '80 bolsas', favorite: true },
+  { name: 'Avena', price: '$1.900', precioKg: 42, precioCompra: 1400, stock: '34 bolsas', favorite: false },
+  { name: 'Pellets', price: '$2.800', precioKg: 180, precioCompra: 2100, stock: '25 bolsas', favorite: false },
+  { name: 'Sal Mineral', price: '$1.500', precioKg: 350, precioCompra: 1100, stock: '5 bolsas', favorite: false },
 ];
 
 /** Pedidos / solicitudes de clientes (productos que piden; algunos no están en catálogo) */
@@ -46,7 +47,6 @@ export const sideMenu = [
   'Stock',
   'Productos',
   'Clientes',
-  'Fiados',
   'Proveedores',
   'Reportes',
   'Gastos',

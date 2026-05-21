@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { listarIngresosStock } from '../services/supabaseData';
 
-const INGRESOS_KEY = 'forrajeria_ingresos';
+const INGRESOS_KEY = 'forrajeria_ingresos_v2';
 
 function getIngresos() {
   try {
@@ -12,9 +13,31 @@ function getIngresos() {
 
 export default function Proveedores() {
   const [busqueda, setBusqueda] = useState('');
+  const [ingresos, setIngresos] = useState(() => getIngresos());
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let mounted = true;
+    listarIngresosStock()
+      .then((rows) => {
+        if (!mounted) return;
+        setIngresos(rows.length ? rows : getIngresos());
+        setError(null);
+      })
+      .catch((err) => {
+        if (!mounted) return;
+        console.warn('No se pudieron cargar proveedores desde Supabase.', err);
+        setIngresos(getIngresos());
+        setError('No se pudieron cargar proveedores desde Supabase.');
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const { productToProveedores, proveedorToProducts, todosProveedores } = useMemo(() => {
-    const list = getIngresos();
+    const list = ingresos;
     const byProduct = {};
     const byProveedor = {};
     const proveedoresSet = new Set();
@@ -47,7 +70,7 @@ export default function Proveedores() {
       proveedorToProducts: byProveedor,
       todosProveedores,
     };
-  }, []);
+  }, [ingresos]);
 
   const busquedaNorm = busqueda.trim().toLowerCase();
   const resultadosProducto = useMemo(() => {
@@ -59,7 +82,7 @@ export default function Proveedores() {
 
   const resultadosProveedor = useMemo(() => {
     if (!busquedaNorm) return [];
-    return Object.entries(proveedorToProducts).filter(([_, data]) => {
+    return Object.entries(proveedorToProducts).filter(([, data]) => {
       const nombre = (data.proveedor || '').toLowerCase();
       const num = (data.numeroProveedor || '').toLowerCase();
       return nombre.includes(busquedaNorm) || num.includes(busquedaNorm);
@@ -67,23 +90,28 @@ export default function Proveedores() {
   }, [busquedaNorm, proveedorToProducts]);
 
   const hayResultados = resultadosProducto.length > 0 || resultadosProveedor.length > 0;
-  const listadoIngresos = getIngresos();
+  const listadoIngresos = ingresos;
 
   return (
     <div className="space-y-6 sm:space-y-8">
       <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight">Proveedores</h1>
-      <p className="text-slate-600 -mt-4">
+      <p className="text-slate-600 -mt-4 text-sm sm:text-base max-w-prose">
         Datos tomados de los ingresos de Stock. Buscá por producto o por proveedor.
       </p>
+      {error && (
+        <p className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
+          {error}
+        </p>
+      )}
 
-      <section className="rounded-[28px] bg-white border border-slate-200 shadow-lg overflow-hidden">
-        <div className="px-6 py-5 border-b border-slate-200">
-          <h2 className="text-2xl font-bold text-slate-800">Buscador</h2>
-          <p className="text-slate-500 mt-1">
+      <section className="rounded-2xl sm:rounded-[28px] bg-white border border-slate-200 shadow-lg overflow-hidden">
+        <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-slate-200">
+          <h2 className="text-xl sm:text-2xl font-bold text-slate-800">Buscador</h2>
+          <p className="text-slate-500 mt-1 text-sm sm:text-base">
             Escribí un producto para ver quién te lo vende, o un proveedor para ver todo lo que te vende.
           </p>
         </div>
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           <input
             type="text"
             value={busqueda}
@@ -156,7 +184,7 @@ export default function Proveedores() {
           )}
 
           {!busqueda.trim() && listadoIngresos.length === 0 && (
-            <div className="mt-6 rounded-2xl border border-slate-200 border-dashed bg-slate-50/50 p-8 text-center text-slate-500">
+            <div className="mt-6 rounded-2xl border border-slate-200 border-dashed bg-slate-50/50 p-5 sm:p-8 text-center text-slate-500">
               Todavía no hay ingresos con proveedor. Registrá ingresos en <strong>Stock</strong> completando proveedor y número de proveedor para ver acá quién te vende cada producto.
             </div>
           )}
@@ -166,8 +194,8 @@ export default function Proveedores() {
               <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide mb-3">
                 Todos los proveedores (según Stock)
               </h3>
-              <div className="rounded-2xl border border-slate-200 overflow-hidden">
-                <table className="w-full text-left text-sm">
+              <div className="rounded-2xl border border-slate-200 overflow-x-auto">
+                <table className="w-full min-w-[520px] text-left text-sm">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200">
                       <th className="py-3 px-4 font-semibold text-slate-700">Proveedor</th>

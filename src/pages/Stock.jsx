@@ -3,8 +3,9 @@ import AgregarStock from '../components/AgregarStock';
 import StockInteligente from '../components/StockInteligente';
 import ComprasVentasGanancias from '../components/ComprasVentasGanancias';
 import StockExcel from '../components/StockExcel';
+import { registrarIngresoStock } from '../services/supabaseData';
 
-const INGRESOS_KEY = 'forrajeria_ingresos';
+const INGRESOS_KEY = 'forrajeria_ingresos_v2';
 
 function getIngresosGuardados() {
   try {
@@ -21,9 +22,18 @@ function guardarIngreso(ingreso) {
 }
 
 export default function Stock() {
-  const { porProducto, setPorProducto } = useStock();
+  const { porProducto, setPorProducto, loading, error } = useStock();
 
-  const onRegistrarIngreso = (nombreProducto, cantidad, precioCompra, precioVenta, proveedor, numeroProveedor) => {
+  const onRegistrarIngreso = (
+    nombreProducto,
+    cantidad,
+    precioCompra,
+    precioVenta,
+    proveedor,
+    numeroProveedor,
+    unidadMedida,
+    observacion
+  ) => {
     setPorProducto((prev) => {
       const actual = prev[nombreProducto] || {
         cantidadComprada: 0,
@@ -41,14 +51,20 @@ export default function Stock() {
         },
       };
     });
-    guardarIngreso({
+    const ingreso = {
       producto: nombreProducto,
       cantidad,
       precioCompra,
       precioVenta,
       proveedor: (proveedor || '').trim(),
       numeroProveedor: (numeroProveedor || '').trim(),
+      unidad: unidadMedida || '',
+      observacion: (observacion || '').trim(),
       fecha: new Date().toISOString().slice(0, 10),
+    };
+    guardarIngreso(ingreso);
+    registrarIngresoStock(ingreso).catch((err) => {
+      console.warn('No se pudo registrar el ingreso en Supabase.', err);
     });
   };
 
@@ -58,6 +74,16 @@ export default function Stock() {
       <p className="text-slate-600 -mt-2 sm:-mt-4 text-sm sm:text-base">
         Agregar ingresos, cargar compras y ventas por producto y ver el porcentaje de ganancia.
       </p>
+      {loading && (
+        <p className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2 text-sm text-slate-500">
+          Cargando stock desde Supabase...
+        </p>
+      )}
+      {error && (
+        <p className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
+          {error}
+        </p>
+      )}
       <StockExcel porProducto={porProducto} setPorProducto={setPorProducto} />
       <AgregarStock
         datosPorProducto={porProducto}

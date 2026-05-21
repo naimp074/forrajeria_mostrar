@@ -1,26 +1,12 @@
 /* eslint react-refresh/only-export-components: off */
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { quickProducts } from '../data/mockData';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { guardarStockSaldos, listarStockSaldos } from '../services/supabaseData';
 
 const StockContext = createContext(null);
-const STOCK_KEY = 'forrajeria_stock_por_producto_v1';
-
-function parsePrecio(str) {
-  if (typeof str === 'number') return str;
-  const num = parseInt(String(str).replace(/[^\d]/g, ''), 10);
-  return isNaN(num) ? 0 : num;
-}
+const STOCK_KEY = 'forrajeria_stock_por_producto_v2';
 
 function estadoInicialPorProducto() {
-  return quickProducts.reduce((acc, p) => {
-    acc[p.name] = {
-      cantidadComprada: 0,
-      cantidadVendida: 0,
-      precioCompra: p.precioCompra ?? 0,
-      precioVenta: parsePrecio(p.price) || 0,
-    };
-    return acc;
-  }, {});
+  return {};
 }
 
 function normalizeLoadedState(loaded) {
@@ -28,18 +14,18 @@ function normalizeLoadedState(loaded) {
   if (!loaded || typeof loaded !== 'object') return base;
 
   const next = { ...base };
-  quickProducts.forEach((p) => {
-    const d = loaded?.[p.name] || {};
-    const cantidadComprada = Number(d.cantidadComprada);
-    const cantidadVendida = Number(d.cantidadVendida);
+  Object.keys(loaded).forEach((name) => {
+    const d = loaded[name];
+    if (!d || typeof d !== 'object') return;
+    const cantidadComprada = Number(d.cantidadComprada) || 0;
+    const cantidadVendida = Number(d.cantidadVendida) || 0;
     const precioCompra = Number(d.precioCompra);
     const precioVenta = Number(d.precioVenta);
-
-    next[p.name] = {
-      cantidadComprada: Number.isFinite(cantidadComprada) ? cantidadComprada : base[p.name].cantidadComprada,
-      cantidadVendida: Number.isFinite(cantidadVendida) ? cantidadVendida : base[p.name].cantidadVendida,
-      precioCompra: Number.isFinite(precioCompra) ? precioCompra : base[p.name].precioCompra,
-      precioVenta: Number.isFinite(precioVenta) ? precioVenta : base[p.name].precioVenta,
+    next[name] = {
+      cantidadComprada: Number.isFinite(cantidadComprada) ? cantidadComprada : 0,
+      cantidadVendida: Number.isFinite(cantidadVendida) ? cantidadVendida : 0,
+      precioCompra: Number.isFinite(precioCompra) ? precioCompra : 0,
+      precioVenta: Number.isFinite(precioVenta) ? precioVenta : 0,
     };
   });
 
@@ -47,7 +33,7 @@ function normalizeLoadedState(loaded) {
 }
 
 export function StockProvider({ children }) {
-  const [porProducto, setPorProducto] = useState(() => {
+  const [porProducto, setPorProductoState] = useState(() => {
     try {
       const raw = localStorage.getItem(STOCK_KEY);
       if (!raw) return estadoInicialPorProducto();
@@ -58,6 +44,31 @@ export function StockProvider({ children }) {
       return estadoInicialPorProducto();
     }
   });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    listarStockSaldos()
+      .then((rows) => {
+        if (!mounted) return;
+        setPorProductoState((prev) => normalizeLoadedState({ ...prev, ...rows }));
+        setError(null);
+      })
+      .catch((err) => {
+        if (!mounted) return;
+        console.warn('No se pudo cargar stock desde Supabase.', err);
+        setError('No se pudo cargar stock desde Supabase.');
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -67,12 +78,26 @@ export function StockProvider({ children }) {
     }
   }, [porProducto]);
 
+  const setPorProducto = useCallback((updater) => {
+    setPorProductoState((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      const normalized = normalizeLoadedState(next);
+      guardarStockSaldos(normalized).catch((err) => {
+        console.warn('No se pudo guardar stock en Supabase.', err);
+        setError('El stock quedo guardado localmente porque Supabase no respondio.');
+      });
+      return normalized;
+    });
+  }, []);
+
   const value = useMemo(
     () => ({
       porProducto,
       setPorProducto,
+      loading,
+      error,
     }),
-    [porProducto]
+    [porProducto, setPorProducto, loading, error]
   );
 
   return <StockContext.Provider value={value}>{children}</StockContext.Provider>;

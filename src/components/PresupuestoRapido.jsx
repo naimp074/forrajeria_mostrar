@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
-import { quickProducts } from '../data/mockData';
+import { useEffect, useMemo, useState } from 'react';
 import Carrito from './Carrito';
 import { useStock } from '../context/StockContext';
+import { useProductos } from '../context/ProductosContext';
+import { crearPresupuesto, listarPresupuestos } from '../services/supabaseData';
 
-const PRESUPUESTOS_KEY = 'forrajeria_presupuestos_v1';
+const PRESUPUESTOS_KEY = 'forrajeria_presupuestos_v2';
 
 function generarId() {
   return `pres-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -36,15 +37,41 @@ function guardarPresupuesto(presupuesto) {
 
 export default function PresupuestoRapido() {
   const { porProducto } = useStock();
+  const { productos, loading: loadingProductos, error: errorProductos } = useProductos();
   const [busqueda, setBusqueda] = useState('');
   const [carrito, setCarrito] = useState([]);
   const [presupuestos, setPresupuestos] = useState(() => getPresupuestos());
   const [mensaje, setMensaje] = useState(null);
+  const [loadingPresupuestos, setLoadingPresupuestos] = useState(true);
+  const [errorPresupuestos, setErrorPresupuestos] = useState(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    listarPresupuestos()
+      .then((rows) => {
+        if (!mounted) return;
+        setPresupuestos(rows);
+        setErrorPresupuestos(null);
+      })
+      .catch((err) => {
+        if (!mounted) return;
+        console.warn('No se pudieron cargar presupuestos desde Supabase.', err);
+        setErrorPresupuestos('No se pudieron cargar presupuestos desde Supabase.');
+      })
+      .finally(() => {
+        if (mounted) setLoadingPresupuestos(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const productosFiltrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
 
-    const conPrecio = quickProducts.map((p) => {
+    const conPrecio = productos.map((p) => {
       const datos = porProducto?.[p.name] || {};
       const precioVentaNum = Number(datos.precioVenta);
       const precioUnitario = Number.isFinite(precioVentaNum) ? precioVentaNum : parsePrecio(p.price);
@@ -60,7 +87,7 @@ export default function PresupuestoRapido() {
 
     if (!q) return conPrecio;
     return conPrecio.filter((p) => p.name.toLowerCase().includes(q) || p.stock.toLowerCase().includes(q));
-  }, [busqueda, porProducto]);
+  }, [busqueda, porProducto, productos]);
 
   const agregarAlCarrito = (nombre, precioUnitario) => {
     const existente = carrito.find((i) => i.nombre === nombre);
@@ -88,7 +115,7 @@ export default function PresupuestoRapido() {
     setCarrito((prev) => prev.map((i) => (i.id === id ? { ...i, cantidad: nuevaCantidad } : i)));
   };
 
-  const procesarPresupuesto = ({ cliente, metodoPago, items, totalNumerico } = {}) => {
+  const procesarPresupuesto = async ({ cliente, metodoPago, items, totalNumerico } = {}) => {
     if (carrito.length === 0) return;
 
     const fecha = new Date().toISOString().slice(0, 10);
@@ -110,6 +137,14 @@ export default function PresupuestoRapido() {
 
     const list = guardarPresupuesto(nuevo);
     setPresupuestos(list);
+    try {
+      const guardado = await crearPresupuesto(nuevo);
+      setPresupuestos((prev) => prev.map((p) => (p.id === nuevo.id ? guardado : p)));
+      setErrorPresupuestos(null);
+    } catch (err) {
+      console.warn('No se pudo guardar el presupuesto en Supabase.', err);
+      setErrorPresupuestos('El presupuesto quedo guardado localmente porque Supabase no respondio.');
+    }
     setCarrito([]);
     setMensaje('Presupuesto generado correctamente.');
     setTimeout(() => setMensaje(null), 3500);
@@ -139,9 +174,17 @@ export default function PresupuestoRapido() {
             </div>
 
             <div className="flex-1 overflow-auto rounded-xl border border-slate-100 bg-slate-50/50 min-h-[180px] sm:min-h-[200px]">
-              {productosFiltrados.length === 0 ? (
+              {loadingProductos ? (
                 <p className="text-slate-400 text-center py-6 sm:py-8 text-sm sm:text-base">
-                  No hay productos que coincidan
+                  Cargando productos...
+                </p>
+              ) : errorProductos ? (
+                <p className="text-amber-700 text-center py-6 sm:py-8 text-sm sm:text-base">
+                  {errorProductos}
+                </p>
+              ) : productosFiltrados.length === 0 ? (
+                <p className="text-slate-400 text-center py-6 sm:py-8 text-sm sm:text-base">
+                  Todavía no hay productos. Cargá el primero desde Stock.
                 </p>
               ) : (
                 <ul className="p-2 space-y-1">
@@ -189,13 +232,25 @@ export default function PresupuestoRapido() {
         </div>
       )}
 
+      {loadingPresupuestos && (
+        <div className="rounded-2xl bg-slate-50 border border-slate-200 text-slate-500 px-4 py-3 text-sm">
+          Cargando presupuestos desde Supabase...
+        </div>
+      )}
+
+      {errorPresupuestos && (
+        <div className="rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 text-sm">
+          {errorPresupuestos}
+        </div>
+      )}
+
       {presupuestos.length > 0 && (
-        <section className="rounded-[28px] bg-white border border-slate-200 shadow-lg overflow-hidden">
-          <div className="px-6 py-5 border-b border-slate-200">
-            <h2 className="text-2xl font-bold">Últimos presupuestos</h2>
-            <p className="text-slate-500 mt-1">Guardados localmente en este dispositivo</p>
+        <section className="rounded-2xl sm:rounded-[28px] bg-white border border-slate-200 shadow-lg overflow-hidden">
+          <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-slate-200">
+            <h2 className="text-xl sm:text-2xl font-bold">Últimos presupuestos</h2>
+            <p className="text-slate-500 mt-1 text-sm sm:text-base">Guardados en Supabase cuando la base esta aplicada</p>
           </div>
-          <div className="p-6 overflow-x-auto">
+          <div className="p-4 sm:p-6 overflow-x-auto">
             <table className="w-full min-w-[680px] text-left">
               <thead>
                 <tr className="border-b border-slate-200 text-slate-600 text-sm">

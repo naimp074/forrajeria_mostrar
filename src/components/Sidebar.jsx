@@ -12,7 +12,7 @@ export default function Sidebar({ abierto = false, onCerrar }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const linkClass = ({ isActive }) =>
-    `block rounded-2xl px-4 py-3 text-sm font-medium border ${
+    `block rounded-2xl px-4 py-3.5 text-base lg:py-3 lg:text-sm font-medium border ${
       isActive
         ? 'bg-emerald-500/20 border-emerald-400/30 text-white'
         : 'bg-white/5 border-white/5 text-slate-300 hover:bg-white/10'
@@ -36,8 +36,8 @@ export default function Sidebar({ abierto = false, onCerrar }) {
         <div className="mt-auto space-y-3">
           <div className="rounded-3xl bg-white/5 border border-white/10 p-4">
             <div className="text-sm text-slate-400">Caja actual</div>
-            <div className="text-3xl font-bold mt-1">$145.000</div>
-            <div className="text-sm text-emerald-300 mt-2">Turno mañana abierto</div>
+            <div className="text-3xl font-bold mt-1">$0</div>
+            <div className="text-sm text-slate-400 mt-2">Sin movimientos</div>
           </div>
           <div className="rounded-2xl bg-white/5 border border-white/10 p-3 flex items-center justify-between gap-2">
             <span className="text-sm text-slate-400 truncate">{user?.nombre ?? '—'}</span>
@@ -54,7 +54,7 @@ export default function Sidebar({ abierto = false, onCerrar }) {
 
       {/* Móvil: drawer bien estrecho para aprovechar la pantalla */}
       <aside
-        className={`lg:hidden fixed inset-y-0 left-0 z-40 w-[min(220px,62vw)] bg-slate-950 text-white flex flex-col px-3 py-4 sm:px-4 sm:py-5 shadow-2xl transition-transform duration-300 ease-out ${
+        className={`lg:hidden fixed inset-y-0 left-0 z-40 w-[min(22rem,92vw)] bg-slate-950 text-white flex flex-col px-3 py-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-4 sm:py-5 shadow-2xl transition-transform duration-300 ease-out ${
           abierto ? 'translate-x-0' : '-translate-x-full'
         }`}
         aria-hidden={!abierto}
@@ -89,8 +89,8 @@ export default function Sidebar({ abierto = false, onCerrar }) {
         <div className="mt-4 space-y-2">
           <div className="rounded-2xl bg-white/5 border border-white/10 p-4">
             <div className="text-sm text-slate-400">Caja actual</div>
-            <div className="text-2xl font-bold mt-1">$145.000</div>
-            <div className="text-sm text-emerald-300 mt-2">Turno mañana abierto</div>
+            <div className="text-2xl font-bold mt-1">$0</div>
+            <div className="text-sm text-slate-400 mt-2">Sin movimientos</div>
           </div>
           <div className="rounded-2xl bg-white/5 border border-white/10 p-3 flex items-center justify-between gap-2">
             <span className="text-sm text-slate-400 truncate">{user?.nombre ?? '—'}</span>

@@ -6,6 +6,14 @@ function parsePrecio(val) {
   return 0;
 }
 
+function lineTotal(item) {
+  if (typeof item.subtotal === 'number' && !Number.isNaN(item.subtotal)) {
+    return item.subtotal;
+  }
+  const c = Number(item.cantidad) || 0;
+  return c * parsePrecio(item.precioUnitario);
+}
+
 function formatPrecio(num) {
   return '$' + num.toLocaleString('es-AR').replace(/,/g, '.');
 }
@@ -48,24 +56,53 @@ export default function Carrito({
   onProcesarVenta,
   onBorrar,
   onEditarCantidad,
+  onEditarCarritoItem,
 }) {
   const [metodoPago, setMetodoPago] = useState('efectivo');
   const [cliente, setCliente] = useState('Cliente General');
   const [editandoId, setEditandoId] = useState(null);
   const [cantidadEdit, setCantidadEdit] = useState(1);
+  const [valorEdicion, setValorEdicion] = useState('');
   const mostrarVacio = vacio ?? items.length === 0;
 
   const totalNumerico =
-    items.length > 0
-      ? items.reduce((sum, i) => sum + i.cantidad * parsePrecio(i.precioUnitario), 0)
-      : 0;
+    items.length > 0 ? items.reduce((sum, i) => sum + lineTotal(i), 0) : 0;
   const totalFormato = totalNumerico > 0 ? formatPrecio(totalNumerico) : '$0.00';
 
   const iniciarEdicion = (item) => {
     setEditandoId(item.id);
-    setCantidadEdit(item.cantidad);
+    if (item.modoVenta === 'kilo') {
+      setValorEdicion(item.kg != null ? String(item.kg).replace('.', ',') : '');
+      setCantidadEdit(1);
+    } else if (item.modoVenta === 'pesos') {
+      setValorEdicion(item.montoPesos != null ? String(Math.round(item.montoPesos)) : '');
+      setCantidadEdit(1);
+    } else {
+      setCantidadEdit(item.cantidad);
+      setValorEdicion('');
+    }
   };
   const aplicarEdicion = (id) => {
+    const item = items.find((i) => i.id === id);
+    if (!item) {
+      setEditandoId(null);
+      return;
+    }
+    if (item.modoVenta === 'kilo' && onEditarCarritoItem) {
+      const kg = parseFloat(String(valorEdicion).replace(',', '.')) || 0;
+      if (kg > 0) onEditarCarritoItem(id, { kg });
+      setEditandoId(null);
+      return;
+    }
+    if (item.modoVenta === 'pesos' && onEditarCarritoItem) {
+      const monto =
+        parseFloat(String(valorEdicion).replace(/\./g, '').replace(',', '.')) ||
+        parseFloat(String(valorEdicion).replace(',', '.')) ||
+        0;
+      if (monto > 0) onEditarCarritoItem(id, { montoPesos: monto });
+      setEditandoId(null);
+      return;
+    }
     if (cantidadEdit < 1) {
       onBorrar?.(id);
     } else {
@@ -108,7 +145,7 @@ export default function Carrito({
         <label className="block text-sm font-medium text-slate-600 mb-2">
           Método de Pago
         </label>
-        <div className="grid grid-cols-3 gap-2 sm:flex sm:gap-2">
+        <div className="grid grid-cols-1 min-[380px]:grid-cols-3 gap-2">
           {METODOS_PAGO.map((metodo) => {
             const { id, label, Icon: PagoIcon } = metodo;
             return (
@@ -116,7 +153,7 @@ export default function Carrito({
               key={id}
               type="button"
               onClick={() => setMetodoPago(id)}
-              className={`flex flex-col items-center gap-1 sm:gap-1.5 rounded-xl border py-2.5 sm:py-3 px-1 sm:px-2 transition ${
+              className={`flex min-h-12 flex-row min-[380px]:flex-col items-center justify-center gap-2 min-[380px]:gap-1.5 rounded-xl border py-2.5 sm:py-3 px-2 transition ${
                 metodoPago === id
                   ? 'bg-emerald-50 border-emerald-400 text-emerald-700'
                   : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -138,9 +175,14 @@ export default function Carrito({
         ) : (
           <div className="space-y-2">
             {items.map((item) => {
-              const detalle = `${item.cantidad} x ${item.precioUnitario}`;
-              const totalItem = formatPrecio(item.cantidad * parsePrecio(item.precioUnitario));
+              const detalle =
+                item.detalleTexto ||
+                `${item.cantidad} x ${typeof item.precioUnitario === 'number' ? '$' + item.precioUnitario.toLocaleString('es-AR') : item.precioUnitario}`;
+              const totalItem = formatPrecio(lineTotal(item));
               const estaEditando = editandoId === item.id;
+              const modoEdicionKilo = item.modoVenta === 'kilo';
+              const modoEdicionPesos = item.modoVenta === 'pesos';
+              const edicionGranel = modoEdicionKilo || modoEdicionPesos;
               return (
                 <div
                   key={item.id}
@@ -149,7 +191,27 @@ export default function Carrito({
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                     <div className="min-w-0 flex-1">
                       <div className="font-semibold text-slate-800 text-sm sm:text-base truncate">{item.nombre}</div>
-                      {estaEditando ? (
+                      {estaEditando && edicionGranel ? (
+                        <div className="mt-2 flex flex-wrap items-end gap-2">
+                          <label className="flex flex-col text-xs text-slate-500">
+                            {modoEdicionKilo ? 'Kilos' : 'Monto ($)'}
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={valorEdicion}
+                              onChange={(e) => setValorEdicion(e.target.value)}
+                              className="mt-0.5 w-28 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-800"
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => aplicarEdicion(item.id)}
+                            className="text-sm font-medium text-emerald-600 hover:underline mb-0.5"
+                          >
+                            Listo
+                          </button>
+                        </div>
+                      ) : estaEditando ? (
                         <div className="mt-2 flex flex-wrap items-center gap-2">
                           <div className="flex items-center rounded-lg border border-slate-200 bg-white">
                             <button
@@ -188,22 +250,26 @@ export default function Carrito({
                         <div className="text-xs sm:text-sm text-slate-500">{detalle}</div>
                       )}
                     </div>
-                    <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-1.5 shrink-0">
-                      <span className="font-bold text-slate-800 text-sm sm:text-base">{totalItem}</span>
+                    <div className="flex flex-col min-[380px]:flex-row min-[380px]:items-center min-[380px]:justify-between sm:justify-end gap-2 sm:gap-1.5 shrink-0">
+                      <span className="font-bold text-slate-800 text-sm sm:text-base min-[380px]:text-right">{totalItem}</span>
                       {!estaEditando && (
-                        <div className="flex items-center gap-1 sm:gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => iniciarEdicion(item)}
-                            className="rounded-lg px-2 sm:px-2.5 py-1 sm:py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 touch-manipulation"
-                            title="Editar cantidad"
-                          >
-                            Editar
-                          </button>
+                        <div className="grid grid-cols-2 min-[380px]:flex items-center gap-1 sm:gap-1.5">
+                          {(!item.modoVenta ||
+                            item.modoVenta === 'bolsa' ||
+                            (((modoEdicionKilo || modoEdicionPesos) && onEditarCarritoItem))) && (
+                            <button
+                              type="button"
+                              onClick={() => iniciarEdicion(item)}
+                              className="rounded-lg px-2 sm:px-2.5 py-2 sm:py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 touch-manipulation"
+                              title="Editar"
+                            >
+                              Editar
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => onBorrar?.(item.id)}
-                            className="rounded-lg px-2 sm:px-2.5 py-1 sm:py-1.5 text-xs font-medium text-red-600 bg-white border border-red-200 hover:bg-red-50 touch-manipulation"
+                            className="rounded-lg px-2 sm:px-2.5 py-2 sm:py-1.5 text-xs font-medium text-red-600 bg-white border border-red-200 hover:bg-red-50 touch-manipulation"
                             title="Quitar del carrito"
                           >
                             Borrar

@@ -1,23 +1,7 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useGastos } from '../context/GastosContext';
-import { quickProducts } from '../data/mockData';
 
-function parsePrecio(str) {
-  if (typeof str === 'number') return str;
-  const num = parseInt(String(str).replace(/[^\d]/g, ''), 10);
-  return isNaN(num) ? 0 : num;
-}
-
-const estadoInicial = () =>
-  quickProducts.reduce((acc, p) => {
-    acc[p.name] = {
-      cantidadComprada: 0,
-      cantidadVendida: 0,
-      precioCompra: p.precioCompra ?? 0,
-      precioVenta: parsePrecio(p.price) || 0,
-    };
-    return acc;
-  }, {});
+const estadoInicial = () => ({});
 
 function formatMoneda(n) {
   return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n);
@@ -29,16 +13,23 @@ export default function ComprasVentasGanancias({ porProducto: porProductoProp, s
   const porProducto = porProductoProp ?? estadoLocal;
   const setPorProducto = setPorProductoProp ?? setEstadoLocal;
 
-  // Costo total del stock (si no hay cantidades cargadas, usamos 1 unidad por producto como referencia para poder mostrar el % sugerido)
-  const totalCostoStock = quickProducts.reduce((sum, p) => {
-    const datos = porProducto[p.name] || {};
-    const cantidadComprada = Number(datos.cantidadComprada) || 0;
-    const cantidadVendida = Number(datos.cantidadVendida) || 0;
-    const stock = Math.max(0, cantidadComprada - cantidadVendida) || cantidadComprada;
-    const precioCompra = Number(datos.precioCompra) || p.precioCompra || 0;
-    const unidadesParaCalculo = stock > 0 ? stock : 1;
-    return sum + precioCompra * unidadesParaCalculo;
-  }, 0);
+  const filasStock = useMemo(() => {
+    return Object.keys(porProducto)
+      .sort((a, b) => a.localeCompare(b, 'es'))
+      .map((name) => ({ key: name, catalog: null }));
+  }, [porProducto]);
+
+  const totalCostoStock = useMemo(() => {
+    return filasStock.reduce((sum, row) => {
+      const datos = porProducto[row.key] || {};
+      const cantidadComprada = Number(datos.cantidadComprada) || 0;
+      const cantidadVendida = Number(datos.cantidadVendida) || 0;
+      const stock = Math.max(0, cantidadComprada - cantidadVendida) || cantidadComprada;
+      const precioCompra = Number(datos.precioCompra) || 0;
+      const unidadesParaCalculo = stock > 0 ? stock : 1;
+      return sum + precioCompra * unidadesParaCalculo;
+    }, 0);
+  }, [filasStock, porProducto]);
 
   const porcentajeExtraParaGastos =
     totalCostoStock > 0 && totalGastos > 0 ? (totalGastos / totalCostoStock) * 100 : 0;
@@ -57,10 +48,11 @@ export default function ComprasVentasGanancias({ porProducto: porProductoProp, s
     if (totalGastos <= 0 || totalCostoStock <= 0) return;
     setPorProducto((prev) => {
       const next = { ...prev };
-      quickProducts.forEach((p) => {
-        const datos = prev[p.name] || {};
-        const precioCompra = Number(datos.precioCompra) || p.precioCompra || 0;
-        const precioVentaNum = Number(datos.precioVenta) || parsePrecio(p.price);
+      filasStock.forEach((row) => {
+        const name = row.key;
+        const datos = prev[name] || {};
+        const precioCompra = Number(datos.precioCompra) || 0;
+        const precioVentaNum = Number(datos.precioVenta) || 0;
         const margenActualNum =
           precioCompra > 0 && precioVentaNum > 0
             ? ((precioVentaNum - precioCompra) / precioCompra) * 100
@@ -69,8 +61,8 @@ export default function ComprasVentasGanancias({ porProducto: porProductoProp, s
         const precioSugerido =
           precioCompra > 0 ? Math.round(precioCompra * (1 + margenSugeridoNum / 100)) : 0;
         if (precioCompra > 0) {
-          next[p.name] = {
-            ...(next[p.name] || {}),
+          next[name] = {
+            ...(next[name] || {}),
             ...datos,
             precioVenta: precioSugerido,
           };
@@ -83,15 +75,85 @@ export default function ComprasVentasGanancias({ porProducto: porProductoProp, s
   const puedeAplicarSugerido = totalGastos > 0 && totalCostoStock > 0;
 
   return (
-    <section className="rounded-[28px] bg-white border border-slate-200 shadow-lg overflow-hidden">
-      <div className="px-6 py-5 border-b border-slate-200">
-        <h2 className="text-2xl font-bold">Compras, ventas y ganancias</h2>
-        <p className="text-slate-500 mt-1">
+    <section className="rounded-2xl sm:rounded-[28px] bg-white border border-slate-200 shadow-lg overflow-hidden">
+      <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-slate-200">
+        <h2 className="text-xl sm:text-2xl font-bold">Compras, ventas y ganancias</h2>
+        <p className="text-slate-500 mt-1 text-sm sm:text-base">
           Cargá cuánto comprás, cuánto vendés y ves el porcentaje de ganancia por producto.
         </p>
       </div>
-      <div className="p-6 overflow-x-auto">
-        <table className="w-full min-w-[800px] text-left">
+      <div className="p-4 sm:p-6 space-y-4">
+        <div className="space-y-3 md:hidden">
+          {filasStock.length === 0 && (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-slate-500">
+              Todavía no hay productos cargados.
+            </div>
+          )}
+          {filasStock.map((row) => {
+            const name = row.key;
+            const datos = porProducto[name] || { cantidadComprada: 0, cantidadVendida: 0, precioCompra: 0, precioVenta: 0 };
+            const precioVentaNum = Number(datos.precioVenta) || 0;
+            const precioCompra = Number(datos.precioCompra) || 0;
+            const porcentaje =
+              precioCompra > 0 && precioVentaNum > 0
+                ? (((precioVentaNum - precioCompra) / precioCompra) * 100).toFixed(1)
+                : '—';
+
+            return (
+              <article key={name} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+                <div>
+                  <div className="font-bold text-slate-800">{name}</div>
+                  <div className="text-xs text-slate-500">Producto cargado</div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="block text-xs font-medium text-slate-500 mb-1">Comprada</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={datos.cantidadComprada || ''}
+                      onChange={(e) =>
+                        setProducto(name, 'cantidadComprada', parseInt(e.target.value, 10) || 0)
+                      }
+                      className="w-full rounded-xl border border-slate-200 bg-white py-3 px-3 text-slate-800 focus:ring-2 focus:ring-emerald-500/30"
+                      placeholder="0"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="block text-xs font-medium text-slate-500 mb-1">Costo</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={datos.precioCompra || ''}
+                      onChange={(e) =>
+                        setProducto(name, 'precioCompra', parseInt(e.target.value, 10) || 0)
+                      }
+                      className="w-full rounded-xl border border-slate-200 bg-white py-3 px-3 text-slate-800 focus:ring-2 focus:ring-emerald-500/30"
+                      placeholder="Costo"
+                    />
+                  </label>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="rounded-xl bg-white border border-slate-200 p-3">
+                    <div className="text-slate-500">Venta</div>
+                    <div className="font-bold text-slate-800">
+                      {precioVentaNum ? formatMoneda(precioVentaNum) : '—'}
+                    </div>
+                  </div>
+                  <div className="rounded-xl bg-white border border-slate-200 p-3">
+                    <div className="text-slate-500">% ganancia</div>
+                    <div className={porcentaje !== '—' && Number(porcentaje) > 0 ? 'font-bold text-emerald-600' : 'font-bold text-slate-400'}>
+                      {porcentaje !== '—' ? `${porcentaje}%` : '—'}
+                    </div>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+
+        <div className="hidden md:block overflow-x-auto -mx-1 px-1 sm:mx-0 sm:px-0">
+          <table className="w-full min-w-[800px] text-left">
           <thead>
             <tr className="border-b border-slate-200 text-slate-600 text-sm">
               <th className="pb-3 font-semibold">Producto</th>
@@ -104,9 +166,11 @@ export default function ComprasVentasGanancias({ porProducto: porProductoProp, s
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {quickProducts.map((p) => {
-              const datos = porProducto[p.name] || { cantidadComprada: 0, cantidadVendida: 0, precioCompra: p.precioCompra ?? 0, precioVenta: parsePrecio(p.price) };
-              const precioVentaNum = Number(datos.precioVenta) || parsePrecio(p.price);
+            {filasStock.map((row) => {
+              const name = row.key;
+              const defaultDatos = { cantidadComprada: 0, cantidadVendida: 0, precioCompra: 0, precioVenta: 0 };
+              const datos = porProducto[name] || defaultDatos;
+              const precioVentaNum = Number(datos.precioVenta) || 0;
               const precioCompra = Number(datos.precioCompra) || 0;
               const porcentaje =
                 precioCompra > 0 && precioVentaNum > 0
@@ -119,9 +183,10 @@ export default function ComprasVentasGanancias({ porProducto: porProductoProp, s
               const haySugerencia = totalGastos > 0 && totalCostoStock > 0 && precioCompra > 0;
 
               return (
-                <tr key={p.name} className="align-middle">
+                <tr key={name} className="align-middle">
                   <td className="py-3">
-                    <span className="font-semibold text-slate-800">{p.name}</span>
+                    <span className="font-semibold text-slate-800">{name}</span>
+                    <span className="ml-2 text-xs font-medium text-slate-400">(cargado)</span>
                   </td>
                   <td className="py-3">
                     <input
@@ -129,7 +194,7 @@ export default function ComprasVentasGanancias({ porProducto: porProductoProp, s
                       min="0"
                       value={datos.cantidadComprada || ''}
                       onChange={(e) =>
-                        setProducto(p.name, 'cantidadComprada', parseInt(e.target.value, 10) || 0)
+                        setProducto(name, 'cantidadComprada', parseInt(e.target.value, 10) || 0)
                       }
                       className="w-24 rounded-lg border border-slate-200 bg-slate-50 py-2 px-3 text-slate-800 focus:ring-2 focus:ring-emerald-500/30"
                       placeholder="0"
@@ -141,14 +206,14 @@ export default function ComprasVentasGanancias({ porProducto: porProductoProp, s
                       min="0"
                       value={datos.precioCompra || ''}
                       onChange={(e) =>
-                        setProducto(p.name, 'precioCompra', parseInt(e.target.value, 10) || 0)
+                        setProducto(name, 'precioCompra', parseInt(e.target.value, 10) || 0)
                       }
                       className="w-28 rounded-lg border border-slate-200 bg-slate-50 py-2 px-3 text-slate-800 focus:ring-2 focus:ring-emerald-500/30"
                       placeholder="Costo"
                     />
                   </td>
                   <td className="py-3 text-slate-700">
-                    {precioVentaNum ? `$${Number(precioVentaNum).toLocaleString('es-AR')}` : p.price}
+                    {precioVentaNum ? `$${Number(precioVentaNum).toLocaleString('es-AR')}` : '—'}
                   </td>
                   <td className="py-3">
                     {porcentaje !== '—' ? (
@@ -186,6 +251,7 @@ export default function ComprasVentasGanancias({ porProducto: porProductoProp, s
             })}
           </tbody>
         </table>
+        </div>
         <div className="mt-4 space-y-1">
           <p className="text-sm text-slate-500">
             % ganancia = ((precio venta − precio compra) / precio compra) × 100
@@ -201,7 +267,7 @@ export default function ComprasVentasGanancias({ porProducto: porProductoProp, s
             <button
               type="button"
               onClick={aplicarPrecioSugeridoATodos}
-              className="rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-semibold py-3 px-5 transition shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+              className="w-full sm:w-auto rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-semibold py-3 px-5 transition shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-400 touch-manipulation"
             >
               Cambiar a todos el precio de venta por el % sugerido
             </button>

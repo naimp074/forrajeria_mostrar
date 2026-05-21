@@ -1,4 +1,9 @@
-import { kpis } from '../data/mockData';
+const kpis = [
+  { label: 'Ventas hoy', value: '$0', sub: 'Sin ventas registradas' },
+  { label: 'Ganancia estimada', value: '$0', sub: 'Sin ventas registradas' },
+  { label: 'Tickets emitidos', value: '0', sub: 'Sin tickets emitidos' },
+  { label: 'Saldo pendiente', value: '$0', sub: 'Sin saldos registrados' },
+];
 
 export default function KpisSection() {
   return (

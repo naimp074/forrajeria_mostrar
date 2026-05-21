@@ -18,7 +18,7 @@ function formatMonto(n) {
 }
 
 export default function GastosSection() {
-  const { gastos, agregarGasto: agregarGastoContext } = useGastos();
+  const { gastos, agregarGasto: agregarGastoContext, loading, error } = useGastos();
   const [descripcion, setDescripcion] = useState('');
   const [monto, setMonto] = useState('');
   const [categoria, setCategoria] = useState('otros');
@@ -55,15 +55,25 @@ export default function GastosSection() {
   }, {});
 
   return (
-    <section className="rounded-[28px] bg-white border border-slate-200 shadow-lg overflow-hidden">
-      <div className="px-6 py-5 border-b border-slate-200">
-        <h2 className="text-2xl font-bold">Gastos</h2>
-        <p className="text-slate-500 mt-1">
+    <section className="rounded-2xl sm:rounded-[28px] bg-white border border-slate-200 shadow-lg overflow-hidden">
+      <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-slate-200">
+        <h2 className="text-xl sm:text-2xl font-bold">Gastos</h2>
+        <p className="text-slate-500 mt-1 text-sm sm:text-base">
           Registrá gastos (comida, sueldos, AFIP, luz, etc.) y mirá el resumen por categoría.
         </p>
       </div>
 
-      <div className="p-6 space-y-6">
+      <div className="p-4 sm:p-6 space-y-6">
+        {loading && (
+          <p className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2 text-sm text-slate-500">
+            Cargando gastos desde Supabase...
+          </p>
+        )}
+        {error && (
+          <p className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
+            {error}
+          </p>
+        )}
         <form onSubmit={agregarGasto} className="rounded-2xl bg-slate-50 border border-slate-200 p-4 space-y-4">
           <h3 className="font-semibold text-slate-800">Cargar gasto</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

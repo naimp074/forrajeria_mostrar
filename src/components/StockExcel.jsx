@@ -1,30 +1,24 @@
 import { useRef } from 'react';
 import * as XLSX from 'xlsx';
-import { quickProducts } from '../data/mockData';
-
-function parsePrecio(str) {
-  if (typeof str === 'number') return str;
-  const num = parseInt(String(str).replace(/[^\d]/g, ''), 10);
-  return isNaN(num) ? 0 : num;
-}
 
 function exportarStockExcel(porProducto) {
-  const filas = quickProducts.map((p) => {
-    const datos = porProducto[p.name] || {};
+  const nombresExtra = Object.keys(porProducto)
+    .sort((a, b) => a.localeCompare(b, 'es'));
+  const filas = nombresExtra.map((name) => {
+    const datos = porProducto[name] || {};
     const cantComprada = Number(datos.cantidadComprada) || 0;
     const cantVendida = Number(datos.cantidadVendida) || 0;
     const stockActual = Math.max(0, cantComprada - cantVendida);
-    const unidad = p.stock && p.stock.includes('fardos') ? 'fardos' : 'bolsas';
     const precioCompra = Number(datos.precioCompra);
     const precioVenta = Number(datos.precioVenta);
     return {
-      'Producto': p.name,
-      'Unidad': unidad,
+      Producto: name,
+      Unidad: 'unidades',
       'Cantidad comprada': cantComprada,
       'Cantidad vendida': cantVendida,
       'Stock actual': stockActual,
-      'Precio compra': Number.isFinite(precioCompra) ? precioCompra : (p.precioCompra ?? 0),
-      'Precio venta': Number.isFinite(precioVenta) ? precioVenta : (parsePrecio(p.price) || 0),
+      'Precio compra': Number.isFinite(precioCompra) ? precioCompra : 0,
+      'Precio venta': Number.isFinite(precioVenta) ? precioVenta : 0,
     };
   });
   const hoja = XLSX.utils.json_to_sheet(filas);
@@ -34,8 +28,7 @@ function exportarStockExcel(porProducto) {
   XLSX.writeFile(libro, nombre);
 }
 
-function leerExcelYActualizar(archivo, setPorProducto, quickProducts) {
-  const nombresProductos = new Set(quickProducts.map((p) => p.name));
+function leerExcelYActualizar(archivo, setPorProducto) {
   const reader = new FileReader();
   reader.onload = (e) => {
     try {
@@ -56,7 +49,7 @@ function leerExcelYActualizar(archivo, setPorProducto, quickProducts) {
         for (let i = 1; i < rows.length; i++) {
           const row = rows[i];
           const producto = String(row[idxProducto] ?? '').trim();
-          if (!producto || !nombresProductos.has(producto)) continue;
+          if (!producto) continue;
           const cantComprada = Number(row[idxCantComprada]) || 0;
           const cantVendida = Number(row[idxCantVendida]) || 0;
           const precioCompra = Number(row[idxPrecioCompra]);
@@ -98,30 +91,30 @@ export default function StockExcel({ porProducto, setPorProducto }) {
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    leerExcelYActualizar(file, setPorProducto, quickProducts);
+    leerExcelYActualizar(file, setPorProducto);
     e.target.value = '';
   };
 
   return (
-    <section className="rounded-[28px] bg-white border border-slate-200 shadow-lg overflow-hidden">
-      <div className="px-6 py-5 border-b border-slate-200">
-        <h2 className="text-2xl font-bold">Excel</h2>
+    <section className="rounded-2xl sm:rounded-[28px] bg-white border border-slate-200 shadow-lg overflow-hidden">
+      <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-slate-200">
+        <h2 className="text-xl sm:text-2xl font-bold">Excel</h2>
         <p className="text-slate-500 mt-1">
           Exportá el stock para editar precios o cantidades en Excel e importalo de nuevo para actualizar más rápido.
         </p>
       </div>
-      <div className="p-6 flex flex-wrap gap-3">
+      <div className="p-4 sm:p-6 grid grid-cols-1 sm:flex sm:flex-wrap gap-3">
         <button
           type="button"
           onClick={handleExportar}
-          className="rounded-2xl border border-emerald-600 bg-emerald-600 text-white px-5 py-2.5 font-semibold text-sm hover:bg-emerald-700 transition"
+          className="w-full sm:w-auto rounded-2xl border border-emerald-600 bg-emerald-600 text-white px-5 py-3 sm:py-2.5 font-semibold text-sm hover:bg-emerald-700 transition"
         >
           Exportar a Excel
         </button>
         <button
           type="button"
           onClick={handleImportarClick}
-          className="rounded-2xl border border-slate-300 bg-white text-slate-700 px-5 py-2.5 font-semibold text-sm hover:bg-slate-50 transition"
+          className="w-full sm:w-auto rounded-2xl border border-slate-300 bg-white text-slate-700 px-5 py-3 sm:py-2.5 font-semibold text-sm hover:bg-slate-50 transition"
         >
           Importar desde Excel
         </button>
@@ -134,8 +127,8 @@ export default function StockExcel({ porProducto, setPorProducto }) {
           aria-hidden
         />
       </div>
-      <div className="px-6 pb-6 text-sm text-slate-500">
-        Al exportar se genera un archivo con columnas: Producto, Unidad, Cantidad comprada, Cantidad vendida, Stock actual, Precio compra, Precio venta. Editá lo que necesites e importalo de nuevo; se actualizarán solo los productos que coincidan por nombre.
+      <div className="px-4 sm:px-6 pb-4 sm:pb-6 text-sm text-slate-500">
+        Al exportar se incluyen el catálogo y los productos nuevos que hayas cargado. Al importar, cada fila actualiza o crea el producto por nombre (también nombres que no estén en el catálogo).
       </div>
     </section>
   );

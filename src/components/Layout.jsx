@@ -12,9 +12,9 @@ export default function Layout() {
   const [menuAbierto, setMenuAbierto] = useState(false);
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
+    <div className="min-h-dvh bg-slate-100 text-slate-900 overflow-x-hidden">
       {/* Barra superior móvil: solo visible en pantallas pequeñas */}
-      <header className="lg:hidden sticky top-0 z-40 flex items-center justify-between gap-4 px-4 py-3 bg-slate-950 text-white shadow-md">
+      <header className="lg:hidden sticky top-0 z-40 flex items-center justify-between gap-3 px-3 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] bg-slate-950 text-white shadow-md">
         <button
           type="button"
           onClick={() => setMenuAbierto(true)}
@@ -27,10 +27,10 @@ export default function Layout() {
         <span className="w-10" aria-hidden />
       </header>
 
-      <div className="flex min-h-screen">
+      <div className="flex min-h-dvh min-w-0">
         <Sidebar abierto={menuAbierto} onCerrar={() => setMenuAbierto(false)} />
-        <main className="flex-1 w-full min-w-0 p-4 sm:p-5 md:p-8 xl:p-10 overflow-auto">
-          <div className="max-w-7xl mx-auto">
+        <main className="flex-1 w-full min-w-0 overflow-x-hidden p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-5 sm:pb-5 md:p-8 md:pb-8 xl:p-10 xl:pb-10">
+          <div className="w-full max-w-7xl mx-auto min-w-0">
             <Outlet />
           </div>
         </main>
