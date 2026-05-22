@@ -2,6 +2,8 @@
 import { useState, useEffect } from 'react';
 import { useProductos } from '../context/ProductosContext';
 
+const MARGEN_DEFAULT = '30';
+
 function parsePrecio(str) {
   if (typeof str === 'number') return str;
   const num = parseInt(String(str).replace(/[^\d]/g, ''), 10);
@@ -9,7 +11,13 @@ function parsePrecio(str) {
 }
 
 function parseNumero(valor) {
-  return parseFloat(String(valor || '').replace(/\./g, '').replace(',', '.')) || 0;
+  const texto = String(valor ?? '').trim();
+  if (!texto) return 0;
+  const limpio = texto.replace(/[^\d,.-]/g, '');
+  const normalizado = limpio.includes(',')
+    ? limpio.replace(/\./g, '').replace(',', '.')
+    : limpio;
+  return parseFloat(normalizado) || 0;
 }
 
 function calcularPrecioVenta(precioCompra, margenPorcentaje) {
@@ -18,11 +26,19 @@ function calcularPrecioVenta(precioCompra, margenPorcentaje) {
   return Math.round(compra * (1 + margen / 100));
 }
 
+function calcularCostoUnitario(precioCompraTotal, cantidad) {
+  const total = parseNumero(precioCompraTotal);
+  const cant = parseNumero(cantidad);
+  if (total <= 0 || cant <= 0) return 0;
+  return total / cant;
+}
+
 function calcularMargen(precioCompra, precioVenta) {
   const compra = Number(precioCompra) || 0;
   const venta = Number(precioVenta) || 0;
   if (compra <= 0 || venta <= 0) return '';
-  return (((venta - compra) / compra) * 100).toFixed(1);
+  const margen = ((venta - compra) / compra) * 100;
+  return Number.isInteger(margen) ? String(margen) : margen.toFixed(1).replace(/\.0$/, '');
 }
 
 export default function AgregarStock({ datosPorProducto = {}, onRegistrarIngreso }) {
@@ -33,7 +49,7 @@ export default function AgregarStock({ datosPorProducto = {}, onRegistrarIngreso
   const [cantidad, setCantidad] = useState('');
   const [unidad, setUnidad] = useState('bolsas');
   const [precioCompra, setPrecioCompra] = useState('');
-  const [margenPorcentaje, setMargenPorcentaje] = useState('');
+  const [margenPorcentaje, setMargenPorcentaje] = useState(MARGEN_DEFAULT);
   const [proveedor, setProveedor] = useState('');
   const [numeroProveedor, setNumeroProveedor] = useState('');
   const [observacion, setObservacion] = useState('');
@@ -62,7 +78,7 @@ export default function AgregarStock({ datosPorProducto = {}, onRegistrarIngreso
     const venta =
       datos?.precioVenta != null ? datos.precioVenta : parsePrecio(sel.price) || '';
     setPrecioCompra(compra);
-    setMargenPorcentaje(calcularMargen(compra, venta));
+    setMargenPorcentaje(calcularMargen(compra, venta) || MARGEN_DEFAULT);
   }, [origenProducto, producto, datosPorProducto, productos]);
 
   useEffect(() => {
@@ -70,13 +86,13 @@ export default function AgregarStock({ datosPorProducto = {}, onRegistrarIngreso
     const nombre = nombreNuevo.trim();
     if (!nombre) {
       setPrecioCompra('');
-      setMargenPorcentaje('');
+      setMargenPorcentaje(MARGEN_DEFAULT);
       return;
     }
     const datos = datosPorProducto[nombre];
     if (datos) {
       setPrecioCompra(datos.precioCompra ?? '');
-      setMargenPorcentaje(calcularMargen(datos.precioCompra, datos.precioVenta));
+      setMargenPorcentaje(calcularMargen(datos.precioCompra, datos.precioVenta) || MARGEN_DEFAULT);
     }
   }, [origenProducto, nombreNuevo, datosPorProducto]);
 
@@ -85,7 +101,7 @@ export default function AgregarStock({ datosPorProducto = {}, onRegistrarIngreso
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    const cant = parseInt(cantidad, 10) || 0;
+    const cant = parseNumero(cantidad);
     if (cant <= 0) return;
 
     if (origenProducto === 'nuevo') {
@@ -93,8 +109,8 @@ export default function AgregarStock({ datosPorProducto = {}, onRegistrarIngreso
       if (n.length < 2) return;
     }
 
-    const compra = parseInt(String(precioCompra).replace(/\D/g, ''), 10) || 0;
-    const venta = calcularPrecioVenta(precioCompra, margenPorcentaje);
+    const compra = calcularCostoUnitario(precioCompra, cant);
+    const venta = calcularPrecioVenta(compra, margenPorcentaje);
     if (onRegistrarIngreso) {
       onRegistrarIngreso(nombreParaIngreso, cant, compra, venta, proveedor.trim(), numeroProveedor.trim(), unidad, observacion.trim());
     }
@@ -105,12 +121,12 @@ export default function AgregarStock({ datosPorProducto = {}, onRegistrarIngreso
     setObservacion('');
     if (origenProducto === 'catalogo') {
       setUnidad(unidadSugeridaCatalogo);
-      setPrecioCompra(compra || '');
-      setMargenPorcentaje(margenPorcentaje || '');
+      setPrecioCompra('');
+      setMargenPorcentaje(margenPorcentaje || MARGEN_DEFAULT);
     } else {
       setNombreNuevo('');
       setPrecioCompra('');
-      setMargenPorcentaje('');
+      setMargenPorcentaje(MARGEN_DEFAULT);
     }
     setTimeout(() => setEnviado(false), 3000);
   };
@@ -214,11 +230,13 @@ export default function AgregarStock({ datosPorProducto = {}, onRegistrarIngreso
             </label>
             <input
               type="number"
-              min="1"
+              min="0.001"
+              step="0.001"
+              inputMode="decimal"
               value={cantidad}
               onChange={(e) => setCantidad(e.target.value)}
               className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 px-4 text-slate-800 focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400"
-              placeholder="Ej: 50"
+              placeholder="Ej: 12, 0.5, 1.25"
               required
             />
           </div>
@@ -242,11 +260,12 @@ export default function AgregarStock({ datosPorProducto = {}, onRegistrarIngreso
         <div className="grid sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">
-              Precio de compra ($)
+              Precio compra total ($)
             </label>
             <input
               type="number"
               min="0"
+              step="0.01"
               value={precioCompra}
               onChange={(e) => setPrecioCompra(e.target.value)}
               className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 px-4 text-slate-800 focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400"
@@ -270,9 +289,19 @@ export default function AgregarStock({ datosPorProducto = {}, onRegistrarIngreso
         </div>
 
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+          <span className="block text-sm font-medium text-emerald-800">Costo unitario calculado</span>
+          <span className="mt-1 block text-lg font-bold text-emerald-900">
+            ${calcularCostoUnitario(precioCompra, cantidad).toLocaleString('es-AR', { maximumFractionDigits: 2 }).replace(/,/g, '.')}
+          </span>
+          <span className="text-xs text-emerald-700">
+            Precio compra total dividido por cantidad.
+          </span>
+        </div>
+
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
           <span className="block text-sm font-medium text-emerald-800">Precio de venta calculado</span>
           <span className="mt-1 block text-xl font-bold text-emerald-900">
-            ${calcularPrecioVenta(precioCompra, margenPorcentaje).toLocaleString('es-AR').replace(/,/g, '.')}
+            ${calcularPrecioVenta(calcularCostoUnitario(precioCompra, cantidad), margenPorcentaje).toLocaleString('es-AR').replace(/,/g, '.')}
           </span>
           <span className="text-xs text-emerald-700">
             Se usa este precio al vender por bolsa/fardo/unidad.

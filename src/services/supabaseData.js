@@ -56,6 +56,9 @@ function mapProducto(row) {
     precioCompra: Number(row.precio_compra_ref) || 0,
     stock: stockLabel,
     unidad,
+    proveedor: row.proveedor_nombre || '',
+    numeroProveedor: row.proveedor_telefono || '',
+    observacion: row.observacion || '',
     favorite: Boolean(row.favorito),
     activo: row.activo !== false,
   };
@@ -74,6 +77,58 @@ function mapCajaSesion(row) {
     cerradaAt: row.cerrada_at,
     cerradaPor: row.cerrada_por,
   };
+}
+
+async function asegurarProveedorProducto(client, productoId, proveedorNombre, proveedorTelefono, options = {}) {
+  if (!productoId) return null;
+
+  const nombre = (proveedorNombre || '').trim();
+  const telefono = (proveedorTelefono || '').trim();
+
+  if (options.reemplazar) {
+    const { error: deleteError } = await client
+      .from('producto_proveedor')
+      .delete()
+      .eq('producto_id', productoId);
+    if (deleteError) throw deleteError;
+  }
+
+  if (!nombre && !telefono) return null;
+
+  const nombreFinal = nombre || 'Sin nombre';
+  let query = client
+    .from('proveedores')
+    .select('id')
+    .eq('nombre', nombreFinal);
+
+  query = telefono ? query.eq('telefono', telefono) : query.is('telefono', null);
+
+  const { data: existente, error: buscarError } = await query.limit(1).maybeSingle();
+  if (buscarError) throw buscarError;
+
+  let proveedorId = existente?.id;
+  if (!proveedorId) {
+    const { data: nuevo, error: crearError } = await client
+      .from('proveedores')
+      .insert({
+        nombre: nombreFinal,
+        telefono: telefono || null,
+      })
+      .select('id')
+      .single();
+    if (crearError) throw crearError;
+    proveedorId = nuevo.id;
+  }
+
+  const { error: relacionError } = await client
+    .from('producto_proveedor')
+    .upsert({
+      producto_id: productoId,
+      proveedor_id: proveedorId,
+    }, { onConflict: 'producto_id,proveedor_id' });
+  if (relacionError) throw relacionError;
+
+  return proveedorId;
 }
 
 async function sumarColumnaDesde(tabla, columna, desde, hasta) {
@@ -190,11 +245,27 @@ export async function crearProducto(producto) {
       precio_kg: Number(producto.precioKg) || 0,
       precio_compra_ref: Number(producto.precioCompra) || 0,
       unidad_default: producto.unidad || 'unidades',
+      proveedor_nombre: producto.proveedor || null,
+      proveedor_telefono: producto.numeroProveedor || null,
+      observacion: producto.observacion || null,
       favorito: Boolean(producto.favorito),
     })
     .select('*')
     .single();
   if (error) throw error;
+
+  const { error: saldoError } = await client
+    .from('stock_saldos')
+    .upsert({
+      producto_id: data.id,
+      precio_compra: Number(producto.precioCompra) || 0,
+      precio_venta: Number(producto.precioUnidad) || 0,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'producto_id' });
+  if (saldoError) throw saldoError;
+
+  await asegurarProveedorProducto(client, data.id, producto.proveedor, producto.numeroProveedor, { reemplazar: true });
+
   return mapProducto(data);
 }
 
@@ -208,12 +279,28 @@ export async function actualizarProducto(id, producto) {
       precio_kg: Number(producto.precioKg) || 0,
       precio_compra_ref: Number(producto.precioCompra) || 0,
       unidad_default: producto.unidad || 'unidades',
+      proveedor_nombre: producto.proveedor || null,
+      proveedor_telefono: producto.numeroProveedor || null,
+      observacion: producto.observacion || null,
       favorito: Boolean(producto.favorito),
     })
     .eq('id', id)
     .select('*')
     .single();
   if (error) throw error;
+
+  const { error: saldoError } = await client
+    .from('stock_saldos')
+    .upsert({
+      producto_id: id,
+      precio_compra: Number(producto.precioCompra) || 0,
+      precio_venta: Number(producto.precioUnidad) || 0,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'producto_id' });
+  if (saldoError) throw saldoError;
+
+  await asegurarProveedorProducto(client, id, producto.proveedor, producto.numeroProveedor, { reemplazar: true });
+
   return mapProducto(data);
 }
 
@@ -320,6 +407,18 @@ export async function guardarStockSaldos(porProducto) {
     .from('stock_saldos')
     .upsert(payload, { onConflict: 'producto_id' });
   if (error) throw error;
+
+  const productosPayload = payload.map((row) => ({
+    id: row.producto_id,
+    precio_compra_ref: row.precio_compra,
+    precio_unidad: row.precio_venta,
+    updated_at: row.updated_at,
+  }));
+
+  const { error: syncError } = await client
+    .from('productos')
+    .upsert(productosPayload, { onConflict: 'id' });
+  if (syncError) throw syncError;
 }
 
 export async function registrarIngresoStock(ingreso) {
@@ -333,24 +432,30 @@ export async function registrarIngresoStock(ingreso) {
       precio_unidad: Number(ingreso.precioVenta) || 0,
       precio_compra_ref: Number(ingreso.precioCompra) || 0,
       unidad_default: ingreso.unidad || 'unidades',
+      proveedor_nombre: ingreso.proveedor || null,
+      proveedor_telefono: ingreso.numeroProveedor || null,
+      observacion: ingreso.observacion || null,
     }, { onConflict: 'nombre' })
     .select('id')
     .single();
   if (productoError) throw productoError;
 
-  let proveedorId = null;
-  if (ingreso.proveedor || ingreso.numeroProveedor) {
-    const { data: proveedor, error: proveedorError } = await client
-      .from('proveedores')
-      .upsert({
-        nombre: ingreso.proveedor || 'Sin nombre',
-        telefono: ingreso.numeroProveedor || null,
-      }, { onConflict: 'nombre,telefono' })
-      .select('id')
-      .single();
-    if (proveedorError) throw proveedorError;
-    proveedorId = proveedor.id;
-  }
+  const { error: saldoError } = await client
+    .from('stock_saldos')
+    .upsert({
+      producto_id: producto.id,
+      precio_compra: Number(ingreso.precioCompra) || 0,
+      precio_venta: Number(ingreso.precioVenta) || 0,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'producto_id' });
+  if (saldoError) throw saldoError;
+
+  const proveedorId = await asegurarProveedorProducto(
+    client,
+    producto.id,
+    ingreso.proveedor,
+    ingreso.numeroProveedor
+  );
 
   const { error } = await client.from('stock_movimientos').insert({
     tipo: 'compra',
@@ -387,6 +492,57 @@ export async function listarIngresosStock() {
     unidad: row.unidad || '',
     fecha: row.fecha,
   }));
+}
+
+export async function listarProveedoresCatalogo() {
+  const client = requireSupabase();
+  const { data: productosData, error: productosError } = await client
+    .from('productos')
+    .select('nombre, proveedor_nombre, proveedor_telefono')
+    .eq('activo', true)
+    .order('nombre', { ascending: true });
+  if (productosError) throw productosError;
+
+  const { data: relacionesData, error: relacionesError } = await client
+    .from('producto_proveedor')
+    .select('productos(nombre, activo), proveedores(nombre, telefono)');
+
+  const directos = (productosData || [])
+    .filter((row) => row.proveedor_nombre || row.proveedor_telefono)
+    .map((row) => ({
+      producto: row.nombre,
+      proveedor: row.proveedor_nombre || '',
+      numeroProveedor: row.proveedor_telefono || '',
+      cantidad: 0,
+      precioCompra: 0,
+      precioVenta: 0,
+      unidad: '',
+      fecha: null,
+      origen: 'catalogo',
+    }));
+
+  const relaciones = relacionesError ? [] : (relacionesData || [])
+    .filter((row) => row.productos?.activo !== false && (row.proveedores?.nombre || row.proveedores?.telefono))
+    .map((row) => ({
+      producto: row.productos?.nombre || '',
+      proveedor: row.proveedores?.nombre || '',
+      numeroProveedor: row.proveedores?.telefono || '',
+      cantidad: 0,
+      precioCompra: 0,
+      precioVenta: 0,
+      unidad: '',
+      fecha: null,
+      origen: 'catalogo',
+    }))
+    .filter((row) => row.producto);
+
+  const porClave = new Map();
+  [...directos, ...relaciones].forEach((row) => {
+    const key = `${row.producto}|${row.proveedor}|${row.numeroProveedor}`;
+    porClave.set(key, row);
+  });
+
+  return Array.from(porClave.values());
 }
 
 export async function listarPresupuestos() {

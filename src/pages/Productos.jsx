@@ -1,14 +1,22 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { useProductos } from '../context/ProductosContext';
 import { useStock } from '../context/StockContext';
 import { registrarIngresoStock } from '../services/supabaseData';
+
+const MARGEN_DEFAULT = '30';
 
 function formatMoneda(n) {
   return '$' + Number(n).toLocaleString('es-AR').replace(/,/g, '.');
 }
 
 function parseNumero(valor) {
-  return parseFloat(String(valor || '').replace(/\./g, '').replace(',', '.')) || 0;
+  const texto = String(valor ?? '').trim();
+  if (!texto) return 0;
+  const limpio = texto.replace(/[^\d,.-]/g, '');
+  const normalizado = limpio.includes(',')
+    ? limpio.replace(/\./g, '').replace(',', '.')
+    : limpio;
+  return parseFloat(normalizado) || 0;
 }
 
 function calcularPrecioVenta(precioCompra, margenPorcentaje) {
@@ -17,11 +25,33 @@ function calcularPrecioVenta(precioCompra, margenPorcentaje) {
   return Math.round(compra * (1 + margen / 100));
 }
 
+function calcularCostoUnitario(precioCompraTotal, cantidad) {
+  const total = parseNumero(precioCompraTotal);
+  const cant = parseNumero(cantidad);
+  if (total <= 0 || cant <= 0) return 0;
+  return total / cant;
+}
+
 function calcularMargen(precioCompra, precioVenta) {
   const compra = Number(precioCompra) || 0;
   const venta = Number(precioVenta) || 0;
   if (compra <= 0 || venta <= 0) return '';
-  return (((venta - compra) / compra) * 100).toFixed(1);
+  const margen = ((venta - compra) / compra) * 100;
+  return Number.isInteger(margen) ? String(margen) : margen.toFixed(1).replace(/\.0$/, '');
+}
+
+function margenProducto(producto) {
+  return calcularMargen(producto.precioCompra, producto.price) || MARGEN_DEFAULT;
+}
+
+function stockDisponible(datos) {
+  if (!datos) return 0;
+  return Math.max(0, (Number(datos.cantidadComprada) || 0) - (Number(datos.cantidadVendida) || 0));
+}
+
+function formatCantidad(cantidad, unidad = 'unidades') {
+  const n = Number(cantidad) || 0;
+  return `${n.toLocaleString('es-AR', { maximumFractionDigits: 3 })} ${unidad}`;
 }
 
 function fechaHoy() {
@@ -29,9 +59,20 @@ function fechaHoy() {
   return d.toISOString().slice(0, 10);
 }
 
+function normalizarBusqueda(valor) {
+  return String(valor || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function avisarProveedoresActualizados() {
+  window.dispatchEvent(new CustomEvent('forrajeria:proveedores-actualizados'));
+}
+
 export default function Productos() {
-  const { productos, loading, error, crearProducto, actualizarProducto, borrarProducto } = useProductos();
-  const { setPorProducto } = useStock();
+  const { productos, loading, error, recargarProductos, crearProducto, actualizarProducto, borrarProducto } = useProductos();
+  const { porProducto, setPorProducto } = useStock();
   const ventasPorProducto = [];
   const ventasPorProductoPorMes = [];
   const [mesBalance, setMesBalance] = useState('');
@@ -41,10 +82,11 @@ export default function Productos() {
   const [clientePedido, setClientePedido] = useState('');
   const [mostrarFormProducto, setMostrarFormProducto] = useState(false);
   const [editandoProducto, setEditandoProducto] = useState(null);
+  const [busquedaCatalogo, setBusquedaCatalogo] = useState('');
   const [formProducto, setFormProducto] = useState({
     nombre: '',
     precioUnidad: '',
-    margenPorcentaje: '',
+    margenPorcentaje: MARGEN_DEFAULT,
     precioKg: '',
     precioCompra: '',
     cantidad: '',
@@ -56,6 +98,74 @@ export default function Productos() {
   });
   const [guardandoProducto, setGuardandoProducto] = useState(false);
   const [productoError, setProductoError] = useState(null);
+  const sincronizandoPreciosRef = useRef(false);
+  const intentosSincronizacionRef = useRef({ firma: '', intentos: 0, timer: null });
+
+  useEffect(() => {
+    recargarProductos();
+  }, [recargarProductos]);
+
+  const productosConPreciosStock = useMemo(() => {
+    return productos.map((producto) => {
+      const stock = porProducto[producto.name] || {};
+      const precioCompraStock = Number(stock.precioCompra) || 0;
+      const precioVentaStock = Number(stock.precioVenta) || 0;
+      const disponible = stockDisponible(stock);
+      const precioCompra = precioCompraStock || Number(producto.precioCompra) || 0;
+      const precioVentaGuardado = precioVentaStock || Number(producto.price) || 0;
+      return {
+        ...producto,
+        precioCompra,
+        price: precioVentaGuardado || calcularPrecioVenta(precioCompra, MARGEN_DEFAULT),
+        cantidadDisponible: disponible,
+        stock: formatCantidad(disponible, producto.unidad),
+      };
+    });
+  }, [productos, porProducto]);
+
+  useEffect(() => {
+    if (sincronizandoPreciosRef.current || productos.length === 0) return;
+
+    const preciosDesincronizados = productos
+      .map((producto) => {
+        const stock = porProducto[producto.name];
+        if (!stock) return null;
+        const precioCompraStock = Number(stock.precioCompra) || 0;
+        const precioVentaStock = Number(stock.precioVenta) || 0;
+        const precioCompraProducto = Number(producto.precioCompra) || 0;
+        const precioVentaProducto = Number(producto.price) || 0;
+        const cambioCompra = precioCompraStock > 0 && precioCompraStock !== precioCompraProducto;
+        const cambioVenta = precioVentaStock > 0 && precioVentaStock !== precioVentaProducto;
+        if (!cambioCompra && !cambioVenta) return null;
+        return `${producto.name}:${precioCompraStock}:${precioVentaStock}:${precioCompraProducto}:${precioVentaProducto}`;
+      })
+      .filter(Boolean);
+
+    if (preciosDesincronizados.length === 0) {
+      intentosSincronizacionRef.current = { firma: '', intentos: 0, timer: null };
+      return;
+    }
+
+    const firma = preciosDesincronizados.join('|');
+    const estadoIntentos = intentosSincronizacionRef.current;
+    if (estadoIntentos.firma !== firma) {
+      intentosSincronizacionRef.current = { firma, intentos: 0, timer: null };
+    }
+
+    if (intentosSincronizacionRef.current.intentos >= 2) return;
+
+    sincronizandoPreciosRef.current = true;
+    intentosSincronizacionRef.current.intentos += 1;
+    setPorProducto((prev) => prev);
+    const timer = window.setTimeout(() => {
+      recargarProductos().finally(() => {
+        sincronizandoPreciosRef.current = false;
+      });
+    }, 700);
+    intentosSincronizacionRef.current.timer = timer;
+
+    return () => window.clearTimeout(timer);
+  }, [productos, porProducto, recargarProductos, setPorProducto]);
 
   const datosMes = ventasPorProductoPorMes.find((m) => m.mes === mesBalance);
   const aRenovar = datosMes
@@ -64,7 +174,22 @@ export default function Productos() {
 
   const masVendidos = [...ventasPorProducto].sort((a, b) => (b.unidades ?? b.ventas) - (a.unidades ?? a.ventas));
 
-  const nombresEnCatalogo = useMemo(() => productos.map((p) => p.name), [productos]);
+  const nombresEnCatalogo = useMemo(() => productosConPreciosStock.map((p) => p.name), [productosConPreciosStock]);
+  const productosFiltrados = useMemo(() => {
+    const busqueda = normalizarBusqueda(busquedaCatalogo);
+    if (!busqueda) return productosConPreciosStock;
+
+    return productosConPreciosStock.filter((producto) => {
+      const texto = normalizarBusqueda([
+        producto.name,
+        producto.proveedor,
+        producto.numeroProveedor,
+        producto.observacion,
+      ].join(' '));
+      return texto.includes(busqueda);
+    });
+  }, [busquedaCatalogo, productosConPreciosStock]);
+
   const { topNoTengo, ultimosPedidos } = useMemo(() => {
     const porProducto = {};
     listaPedidos.forEach((ped) => {
@@ -99,14 +224,14 @@ export default function Productos() {
     setFormProducto({
       nombre: producto.name || '',
       precioUnidad: String(producto.price ?? ''),
-      margenPorcentaje: calcularMargen(producto.precioCompra, producto.price),
+      margenPorcentaje: margenProducto(producto),
       precioKg: String(producto.precioKg ?? ''),
       precioCompra: String(producto.precioCompra ?? ''),
-      cantidad: '',
+      cantidad: String(producto.cantidadDisponible ?? stockDisponible(porProducto[producto.name]) ?? ''),
       unidad: producto.unidad || 'bolsas',
-      proveedor: '',
-      numeroProveedor: '',
-      observacion: '',
+      proveedor: producto.proveedor || '',
+      numeroProveedor: producto.numeroProveedor || '',
+      observacion: producto.observacion || '',
       favorito: Boolean(producto.favorite),
     });
     setProductoError(null);
@@ -119,7 +244,7 @@ export default function Productos() {
     setFormProducto({
       nombre: '',
       precioUnidad: '',
-      margenPorcentaje: '',
+      margenPorcentaje: MARGEN_DEFAULT,
       precioKg: '',
       precioCompra: '',
       cantidad: '',
@@ -137,7 +262,7 @@ export default function Productos() {
     setFormProducto({
       nombre: '',
       precioUnidad: '',
-      margenPorcentaje: '',
+      margenPorcentaje: MARGEN_DEFAULT,
       precioKg: '',
       precioCompra: '',
       cantidad: '',
@@ -157,7 +282,7 @@ export default function Productos() {
       setProductoError('El nombre del producto es obligatorio.');
       return;
     }
-    const cantidad = parseInt(String(formProducto.cantidad).replace(/\D/g, ''), 10) || 0;
+    const cantidad = parseNumero(formProducto.cantidad);
     if (!editandoProducto && cantidad <= 0) {
       setProductoError('La cantidad inicial debe ser mayor a 0.');
       return;
@@ -166,14 +291,45 @@ export default function Productos() {
     setGuardandoProducto(true);
     setProductoError(null);
     try {
-      const precioVentaCalculado = calcularPrecioVenta(formProducto.precioCompra, formProducto.margenPorcentaje);
-      const payload = { ...formProducto, nombre, precioUnidad: precioVentaCalculado };
+      const precioCompra = editandoProducto
+        ? parseNumero(formProducto.precioCompra)
+        : calcularCostoUnitario(formProducto.precioCompra, formProducto.cantidad);
+      const precioVentaCalculado = calcularPrecioVenta(precioCompra, formProducto.margenPorcentaje);
+      const payload = { ...formProducto, nombre, precioCompra, precioUnidad: precioVentaCalculado };
+      const precioVenta = precioVentaCalculado;
+      const proveedorEditado = formProducto.proveedor.trim();
+      const numeroProveedorEditado = formProducto.numeroProveedor.trim();
       if (editandoProducto) {
+        const cambioProveedor =
+          proveedorEditado !== (editandoProducto.proveedor || '').trim() ||
+          numeroProveedorEditado !== (editandoProducto.numeroProveedor || '').trim();
         await actualizarProducto(editandoProducto.id, payload);
+        setPorProducto((prev) => {
+          const actual = prev[editandoProducto.name] || prev[nombre] || {
+            cantidadComprada: 0,
+            cantidadVendida: 0,
+            precioCompra: 0,
+            precioVenta: 0,
+          };
+          const disponibleActual = stockDisponible(actual);
+          const cantidadDisponible = String(formProducto.cantidad).trim() !== '' ? cantidad : disponibleActual;
+          const next = { ...prev };
+          if (editandoProducto.name !== nombre) {
+            delete next[editandoProducto.name];
+          }
+          next[nombre] = {
+            ...actual,
+            cantidadComprada: (Number(actual.cantidadVendida) || 0) + cantidadDisponible,
+            precioCompra,
+            precioVenta,
+          };
+          return next;
+        });
+        if (cambioProveedor) {
+          avisarProveedoresActualizados();
+        }
       } else {
         await crearProducto(payload);
-        const precioCompra = parseInt(String(formProducto.precioCompra).replace(/\D/g, ''), 10) || 0;
-        const precioVenta = precioVentaCalculado;
         const ingreso = {
           producto: nombre,
           cantidad,
@@ -203,11 +359,23 @@ export default function Productos() {
           };
         });
         await registrarIngresoStock(ingreso);
+        if (proveedorEditado || numeroProveedorEditado) {
+          avisarProveedoresActualizados();
+        }
       }
       cancelarEdicion();
     } catch (err) {
       console.warn('No se pudo guardar el producto.', err);
-      setProductoError('No se pudo guardar el producto. Revisá que no exista otro con el mismo nombre.');
+      const mensaje = String(err?.message || '');
+      if (
+        mensaje.includes('proveedor_nombre') ||
+        mensaje.includes('proveedor_telefono') ||
+        mensaje.includes('observacion')
+      ) {
+        setProductoError('Falta actualizar Supabase: ejecutá el SQL supabase/add_producto_detalles.sql para poder guardar proveedor, número y observación.');
+      } else {
+        setProductoError('No se pudo guardar el producto. Revisá que no exista otro con el mismo nombre.');
+      }
     } finally {
       setGuardandoProducto(false);
     }
@@ -469,6 +637,23 @@ export default function Productos() {
             Agregar producto
           </button>
         </div>
+        <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm">
+          <label className="block">
+            <span className="block text-sm font-medium text-slate-600 mb-2">Buscar producto</span>
+            <input
+              type="search"
+              value={busquedaCatalogo}
+              onChange={(e) => setBusquedaCatalogo(e.target.value)}
+              placeholder="Buscar por nombre, proveedor, teléfono u observación..."
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+            />
+          </label>
+          {busquedaCatalogo && (
+            <p className="mt-2 text-sm text-slate-500">
+              {productosFiltrados.length} resultado{productosFiltrados.length === 1 ? '' : 's'} encontrado{productosFiltrados.length === 1 ? '' : 's'}.
+            </p>
+          )}
+        </div>
         {productoError && (
           <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {productoError}
@@ -511,20 +696,22 @@ export default function Productos() {
                   required
                 />
               </label>
-              {!editandoProducto && (
-                <label className="block">
-                  <span className="block text-sm font-medium text-slate-600 mb-1">Cantidad</span>
-                  <input
-                    type="number"
-                    min="1"
-                    value={formProducto.cantidad}
-                    onChange={(e) => setFormProducto((prev) => ({ ...prev, cantidad: e.target.value }))}
-                    placeholder="Ej: 50"
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                    required
-                  />
-                </label>
-              )}
+              <label className="block">
+                <span className="block text-sm font-medium text-slate-600 mb-1">
+                  {editandoProducto ? 'Stock disponible' : 'Cantidad comprada'}
+                </span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.001"
+                  inputMode="decimal"
+                  value={formProducto.cantidad}
+                  onChange={(e) => setFormProducto((prev) => ({ ...prev, cantidad: e.target.value }))}
+                  placeholder="Ej: 12, 0.5, 1.25"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  required={!editandoProducto}
+                />
+              </label>
               <label className="block">
                 <span className="block text-sm font-medium text-slate-600 mb-1">Unidad</span>
                 <select
@@ -539,16 +726,32 @@ export default function Productos() {
                 </select>
               </label>
               <label className="block">
-                <span className="block text-sm font-medium text-slate-600 mb-1">Precio de compra ($)</span>
+                <span className="block text-sm font-medium text-slate-600 mb-1">
+                  {editandoProducto ? 'Costo unitario ($)' : 'Precio compra total ($)'}
+                </span>
                 <input
                   type="number"
                   min="0"
+                  step="0.01"
                   value={formProducto.precioCompra}
                   onChange={(e) => setFormProducto((prev) => ({ ...prev, precioCompra: e.target.value }))}
                   placeholder="Ej: 1500"
                   className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                 />
               </label>
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3">
+                <span className="block text-sm font-medium text-emerald-800">
+                  {editandoProducto ? 'Costo unitario' : 'Costo unitario calculado'}
+                </span>
+                <span className="mt-1 block text-lg font-bold text-emerald-900">
+                  {formatMoneda(editandoProducto
+                    ? parseNumero(formProducto.precioCompra)
+                    : calcularCostoUnitario(formProducto.precioCompra, formProducto.cantidad))}
+                </span>
+                <span className="text-xs text-emerald-700">
+                  {editandoProducto ? 'Se usa para recalcular el precio de venta.' : 'Precio compra total dividido por cantidad.'}
+                </span>
+              </div>
               <label className="block">
                 <span className="block text-sm font-medium text-slate-600 mb-1">% de ganancia</span>
                 <input
@@ -575,46 +778,47 @@ export default function Productos() {
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3">
                 <span className="block text-sm font-medium text-emerald-800">Precio de venta calculado</span>
                 <span className="mt-1 block text-xl font-bold text-emerald-900">
-                  {formatMoneda(calcularPrecioVenta(formProducto.precioCompra, formProducto.margenPorcentaje))}
+                  {formatMoneda(calcularPrecioVenta(
+                    editandoProducto
+                      ? formProducto.precioCompra
+                      : calcularCostoUnitario(formProducto.precioCompra, formProducto.cantidad),
+                    formProducto.margenPorcentaje
+                  ))}
                 </span>
                 <span className="text-xs text-emerald-700">
                   Se calcula con precio de compra + porcentaje.
                 </span>
               </div>
-              {!editandoProducto && (
-                <>
-                  <label className="block">
-                    <span className="block text-sm font-medium text-slate-600 mb-1">Proveedor</span>
-                    <input
-                      type="text"
-                      value={formProducto.proveedor}
-                      onChange={(e) => setFormProducto((prev) => ({ ...prev, proveedor: e.target.value }))}
-                      placeholder="Ej: Forrajes del Sur"
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="block text-sm font-medium text-slate-600 mb-1">Número de proveedor</span>
-                    <input
-                      type="text"
-                      value={formProducto.numeroProveedor}
-                      onChange={(e) => setFormProducto((prev) => ({ ...prev, numeroProveedor: e.target.value }))}
-                      placeholder="Ej: 0810-555-1234"
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                    />
-                  </label>
-                  <label className="block sm:col-span-2 lg:col-span-3">
-                    <span className="block text-sm font-medium text-slate-600 mb-1">Observación (opcional)</span>
-                    <textarea
-                      value={formProducto.observacion}
-                      onChange={(e) => setFormProducto((prev) => ({ ...prev, observacion: e.target.value }))}
-                      placeholder="Ej: Proveedor X, lote 123"
-                      rows={2}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 resize-none"
-                    />
-                  </label>
-                </>
-              )}
+              <label className="block">
+                <span className="block text-sm font-medium text-slate-600 mb-1">Proveedor</span>
+                <input
+                  type="text"
+                  value={formProducto.proveedor}
+                  onChange={(e) => setFormProducto((prev) => ({ ...prev, proveedor: e.target.value }))}
+                  placeholder="Ej: Forrajes del Sur"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                />
+              </label>
+              <label className="block">
+                <span className="block text-sm font-medium text-slate-600 mb-1">Número de proveedor</span>
+                <input
+                  type="text"
+                  value={formProducto.numeroProveedor}
+                  onChange={(e) => setFormProducto((prev) => ({ ...prev, numeroProveedor: e.target.value }))}
+                  placeholder="Ej: 0810-555-1234"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                />
+              </label>
+              <label className="block sm:col-span-2 lg:col-span-3">
+                <span className="block text-sm font-medium text-slate-600 mb-1">Observación (opcional)</span>
+                <textarea
+                  value={formProducto.observacion}
+                  onChange={(e) => setFormProducto((prev) => ({ ...prev, observacion: e.target.value }))}
+                  placeholder="Ej: Proveedor X, lote 123"
+                  rows={2}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 resize-none"
+                />
+              </label>
               <label className="flex items-center gap-2 self-end rounded-xl border border-slate-200 px-3 py-2 text-slate-700">
                 <input
                   type="checkbox"
@@ -642,8 +846,13 @@ export default function Productos() {
             Todavía no hay productos. Usá el botón <strong>Agregar producto</strong> para cargar el primero.
           </div>
         )}
+        {!loading && !error && productos.length > 0 && productosFiltrados.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-slate-500">
+            No encontré productos para <strong>{busquedaCatalogo}</strong>.
+          </div>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {productos.map((p) => (
+          {productosFiltrados.map((p) => (
             <div
               key={p.name}
               className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
@@ -660,9 +869,42 @@ export default function Productos() {
                 ) : null}
               </div>
               <div className="mt-4 flex items-center justify-between">
-                <span className="text-sm text-slate-500">Precio unitario</span>
+                <span className="text-sm text-slate-500">Precio venta</span>
                 <span className="text-xl font-bold">{formatMoneda(p.price)}</span>
               </div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className="rounded-2xl bg-slate-50 border border-slate-100 p-3">
+                  <div className="text-xs text-slate-500">Precio compra</div>
+                  <div className="mt-1 font-bold text-slate-800">
+                    {p.precioCompra ? formatMoneda(p.precioCompra) : '—'}
+                  </div>
+                </div>
+                <div className="rounded-2xl bg-emerald-50 border border-emerald-100 p-3">
+                  <div className="text-xs text-emerald-700">% ganancia</div>
+                  <div className="mt-1 font-bold text-emerald-800">
+                    {margenProducto(p)}%
+                  </div>
+                </div>
+              </div>
+              {(p.proveedor || p.numeroProveedor || p.observacion) && (
+                <div className="mt-4 rounded-2xl bg-slate-50 border border-slate-100 p-3 text-sm text-slate-600 space-y-1">
+                  {p.proveedor && (
+                    <div>
+                      <span className="font-semibold text-slate-700">Proveedor:</span> {p.proveedor}
+                    </div>
+                  )}
+                  {p.numeroProveedor && (
+                    <div>
+                      <span className="font-semibold text-slate-700">Teléfono:</span> {p.numeroProveedor}
+                    </div>
+                  )}
+                  {p.observacion && (
+                    <div>
+                      <span className="font-semibold text-slate-700">Obs:</span> {p.observacion}
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="mt-5 grid grid-cols-1 min-[380px]:grid-cols-2 gap-2">
                 <button
                   type="button"

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
-import { listarIngresosStock } from '../services/supabaseData';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { listarIngresosStock, listarProveedoresCatalogo } from '../services/supabaseData';
+import { useProductos } from '../context/ProductosContext';
 
 const INGRESOS_KEY = 'forrajeria_ingresos_v2';
 
@@ -12,40 +13,74 @@ function getIngresos() {
 }
 
 export default function Proveedores() {
+  const { productos, recargarProductos } = useProductos();
   const [busqueda, setBusqueda] = useState('');
   const [ingresos, setIngresos] = useState(() => getIngresos());
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    let mounted = true;
-    listarIngresosStock()
-      .then((rows) => {
-        if (!mounted) return;
-        setIngresos(rows.length ? rows : getIngresos());
-        setError(null);
-      })
-      .catch((err) => {
-        if (!mounted) return;
-        console.warn('No se pudieron cargar proveedores desde Supabase.', err);
-        setIngresos(getIngresos());
-        setError('No se pudieron cargar proveedores desde Supabase.');
-      });
+  const cargarProveedores = useCallback(async ({ refrescarCatalogo = false } = {}) => {
+    try {
+      if (refrescarCatalogo) {
+        await recargarProductos();
+      }
+      const [stockRows, catalogoRows] = await Promise.all([
+        listarIngresosStock(),
+        listarProveedoresCatalogo(),
+      ]);
+      const rows = [...stockRows, ...catalogoRows];
+      setIngresos(rows.length ? rows : getIngresos());
+      setError(null);
+    } catch (err) {
+      console.warn('No se pudieron cargar proveedores desde Supabase.', err);
+      setIngresos(getIngresos());
+      setError('No se pudieron cargar proveedores desde Supabase.');
+    }
+  }, [recargarProductos]);
 
-    return () => {
-      mounted = false;
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      cargarProveedores();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [cargarProveedores]);
+
+  useEffect(() => {
+    const handleProveedorActualizado = () => {
+      cargarProveedores({ refrescarCatalogo: true });
     };
-  }, []);
+    window.addEventListener('forrajeria:proveedores-actualizados', handleProveedorActualizado);
+    return () => {
+      window.removeEventListener('forrajeria:proveedores-actualizados', handleProveedorActualizado);
+    };
+  }, [cargarProveedores]);
+
+  const proveedoresDesdeCatalogo = useMemo(() => {
+    return productos
+      .filter((producto) => producto.proveedor || producto.numeroProveedor)
+      .map((producto) => ({
+        producto: producto.name,
+        proveedor: producto.proveedor || '',
+        numeroProveedor: producto.numeroProveedor || '',
+        cantidad: 0,
+        precioCompra: 0,
+        precioVenta: 0,
+        unidad: '',
+        fecha: null,
+        origen: 'catalogo',
+      }));
+  }, [productos]);
 
   const { productToProveedores, proveedorToProducts, todosProveedores } = useMemo(() => {
-    const list = ingresos;
+    const list = [...ingresos, ...proveedoresDesdeCatalogo];
     const byProduct = {};
     const byProveedor = {};
     const proveedoresSet = new Set();
     list.forEach((ing) => {
       const prov = (ing.proveedor || '').trim();
       const num = (ing.numeroProveedor || '').trim();
+      const tieneProveedor = Boolean(prov || num);
       const key = `${prov || 'Sin nombre'}|${num}`;
-      if (prov || num) proveedoresSet.add(key);
+      if (tieneProveedor) proveedoresSet.add(key);
       if (ing.producto) {
         if (!byProduct[ing.producto]) byProduct[ing.producto] = [];
         const pair = { proveedor: prov || 'Sin nombre', numeroProveedor: num };
@@ -54,7 +89,7 @@ export default function Proveedores() {
         );
         if (!ya) byProduct[ing.producto].push(pair);
       }
-      if (key) {
+      if (tieneProveedor) {
         if (!byProveedor[key]) byProveedor[key] = { proveedor: prov || 'Sin nombre', numeroProveedor: num, productos: [] };
         if (ing.producto && !byProveedor[key].productos.includes(ing.producto)) {
           byProveedor[key].productos.push(ing.producto);
@@ -70,7 +105,7 @@ export default function Proveedores() {
       proveedorToProducts: byProveedor,
       todosProveedores,
     };
-  }, [ingresos]);
+  }, [ingresos, proveedoresDesdeCatalogo]);
 
   const busquedaNorm = busqueda.trim().toLowerCase();
   const resultadosProducto = useMemo(() => {
@@ -90,7 +125,7 @@ export default function Proveedores() {
   }, [busquedaNorm, proveedorToProducts]);
 
   const hayResultados = resultadosProducto.length > 0 || resultadosProveedor.length > 0;
-  const listadoIngresos = ingresos;
+  const tieneProveedores = todosProveedores.length > 0;
 
   return (
     <div className="space-y-6 sm:space-y-8">
@@ -183,16 +218,16 @@ export default function Proveedores() {
             </div>
           )}
 
-          {!busqueda.trim() && listadoIngresos.length === 0 && (
+          {!busqueda.trim() && !tieneProveedores && (
             <div className="mt-6 rounded-2xl border border-slate-200 border-dashed bg-slate-50/50 p-5 sm:p-8 text-center text-slate-500">
-              Todavía no hay ingresos con proveedor. Registrá ingresos en <strong>Stock</strong> completando proveedor y número de proveedor para ver acá quién te vende cada producto.
+              Todavía no hay proveedores cargados. Agregalos desde <strong>Productos</strong> o al registrar un ingreso en <strong>Stock</strong>.
             </div>
           )}
 
-          {!busqueda.trim() && listadoIngresos.length > 0 && (
+          {!busqueda.trim() && tieneProveedores && (
             <div className="mt-6">
               <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide mb-3">
-                Todos los proveedores (según Stock)
+                Todos los proveedores
               </h3>
               <div className="rounded-2xl border border-slate-200 overflow-x-auto">
                 <table className="w-full min-w-[520px] text-left text-sm">

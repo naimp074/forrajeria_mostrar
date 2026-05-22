@@ -15,6 +15,7 @@ export function ProductosProvider({ children }) {
   const [error, setError] = useState(null);
 
   const recargarProductos = useCallback(async () => {
+    setLoading(true);
     try {
       const rows = await listarProductos();
       setProductos(rows);

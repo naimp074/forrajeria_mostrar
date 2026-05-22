@@ -1,4 +1,6 @@
+import { useCallback } from 'react';
 import { useStock } from '../context/StockContext';
+import { useProductos } from '../context/ProductosContext';
 import AgregarStock from '../components/AgregarStock';
 import StockInteligente from '../components/StockInteligente';
 import ComprasVentasGanancias from '../components/ComprasVentasGanancias';
@@ -23,6 +25,14 @@ function guardarIngreso(ingreso) {
 
 export default function Stock() {
   const { porProducto, setPorProducto, loading, error } = useStock();
+  const { recargarProductos } = useProductos();
+
+  const setPorProductoSincronizado = useCallback((updater) => {
+    setPorProducto(updater);
+    window.setTimeout(() => {
+      recargarProductos();
+    }, 500);
+  }, [setPorProducto, recargarProductos]);
 
   const onRegistrarIngreso = (
     nombreProducto,
@@ -34,7 +44,7 @@ export default function Stock() {
     unidadMedida,
     observacion
   ) => {
-    setPorProducto((prev) => {
+    setPorProductoSincronizado((prev) => {
       const actual = prev[nombreProducto] || {
         cantidadComprada: 0,
         cantidadVendida: 0,
@@ -63,9 +73,11 @@ export default function Stock() {
       fecha: new Date().toISOString().slice(0, 10),
     };
     guardarIngreso(ingreso);
-    registrarIngresoStock(ingreso).catch((err) => {
-      console.warn('No se pudo registrar el ingreso en Supabase.', err);
-    });
+    registrarIngresoStock(ingreso)
+      .then(() => recargarProductos())
+      .catch((err) => {
+        console.warn('No se pudo registrar el ingreso en Supabase.', err);
+      });
   };
 
   return (
@@ -84,14 +96,14 @@ export default function Stock() {
           {error}
         </p>
       )}
-      <StockExcel porProducto={porProducto} setPorProducto={setPorProducto} />
+      <StockExcel porProducto={porProducto} setPorProducto={setPorProductoSincronizado} />
       <AgregarStock
         datosPorProducto={porProducto}
         onRegistrarIngreso={onRegistrarIngreso}
       />
       <ComprasVentasGanancias
         porProducto={porProducto}
-        setPorProducto={setPorProducto}
+        setPorProducto={setPorProductoSincronizado}
       />
       <StockInteligente />
     </div>

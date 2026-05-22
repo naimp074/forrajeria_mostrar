@@ -247,7 +247,14 @@ export default function Carrito({
                           </button>
                         </div>
                       ) : (
-                        <div className="text-xs sm:text-sm text-slate-500">{detalle}</div>
+                        <div className="text-xs sm:text-sm text-slate-500">
+                          {detalle}
+                          {item.stockDespues != null && (
+                            <span className="block text-emerald-700 font-medium">
+                              Queda: {Number(item.stockDespues).toLocaleString('es-AR', { maximumFractionDigits: 3 })} {item.unidadStock || ''}
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
                     <div className="flex flex-col min-[380px]:flex-row min-[380px]:items-center min-[380px]:justify-between sm:justify-end gap-2 sm:gap-1.5 shrink-0">

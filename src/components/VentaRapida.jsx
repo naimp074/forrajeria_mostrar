@@ -43,8 +43,14 @@ function redondearMonto(n) {
   return Math.round(n * 100) / 100;
 }
 
+function formatDisponible(cantidad, unidad = 'unidades') {
+  const n = Number(cantidad) || 0;
+  if (unidad === 'kg') return formatKgHuman(n).replace('—', '0 kg');
+  return `${n.toLocaleString('es-AR', { maximumFractionDigits: 3 })} ${unidad}`;
+}
+
 export default function VentaRapida() {
-  const { setPorProducto } = useStock();
+  const { porProducto, setPorProducto } = useStock();
   const { productos, loading: loadingProductos, error: errorProductos } = useProductos();
   const [busqueda, setBusqueda] = useState('');
   const [carrito, setCarrito] = useState([]);
@@ -80,6 +86,21 @@ export default function VentaRapida() {
     );
   }, [busqueda, productos]);
 
+  const productosConStock = useMemo(() => {
+    return productosFiltrados.map((producto) => {
+      const stock = porProducto[producto.name] || {};
+      const disponible = Math.max(0, (Number(stock.cantidadComprada) || 0) - (Number(stock.cantidadVendida) || 0));
+      return {
+        ...producto,
+        disponible,
+        price: Number(stock.precioVenta) || parsePrecioStr(producto.price),
+        precioKg: producto.unidad === 'kg'
+          ? (Number(stock.precioVenta) || parsePrecioStr(producto.price))
+          : (Number(producto.precioKg) || 0),
+      };
+    });
+  }, [productosFiltrados, porProducto]);
+
   const abrirModal = (p) => {
     setModalProducto(p);
     setModalModo(null);
@@ -90,14 +111,19 @@ export default function VentaRapida() {
 
   const precioBolsa = modalProducto ? parsePrecioStr(modalProducto.price) : 0;
   const precioKg = modalProducto ? Number(modalProducto.precioKg) || 0 : 0;
-  const etiquetaUnidad = modalProducto && esFardo(modalProducto.stock) ? 'fardo' : 'bolsa';
-  const etiquetaUnidadPlural = etiquetaUnidad === 'fardo' ? 'fardos' : 'bolsas';
+  const unidadProducto = modalProducto?.unidad || 'bolsas';
+  const ventaPorKg = unidadProducto === 'kg';
+  const etiquetaUnidad = unidadProducto === 'fardos' ? 'fardo' : unidadProducto === 'unidades' ? 'unidad' : 'bolsa';
+  const etiquetaUnidadPlural = unidadProducto === 'fardos' ? 'fardos' : unidadProducto === 'unidades' ? 'unidades' : 'bolsas';
+  const disponibleModal = Number(modalProducto?.disponible) || 0;
+  const mostrarVentaPorPeso = ventaPorKg || precioKg > 0;
 
   const confirmarAlCarrito = () => {
     if (!modalProducto || !modalModo) return;
 
     if (modalModo === 'bolsa') {
       const n = Math.max(1, Math.floor(cantBolsas));
+      if (disponibleModal > 0 && n > disponibleModal) return;
       const subtotal = redondearMonto(n * precioBolsa);
       setCarrito((prev) => {
         const existente = prev.find(
@@ -113,6 +139,7 @@ export default function VentaRapida() {
                   ...i,
                   cantidad: i.cantidad + n,
                   subtotal: redondearMonto((i.cantidad + n) * precioBolsa),
+                  stockDespues: Math.max(0, disponibleModal - (i.cantidad + n)),
                   detalleTexto: `${i.cantidad + n} ${i.unidadPlural || etiquetaUnidadPlural} × ${formatMoney(precioBolsa)}`,
                 }
               : i
@@ -128,6 +155,9 @@ export default function VentaRapida() {
             precioUnitario: precioBolsa,
             subtotal,
             unidadPlural: etiquetaUnidadPlural,
+            unidadStock: unidadProducto,
+            stockAntes: disponibleModal,
+            stockDespues: Math.max(0, disponibleModal - n),
             detalleTexto: `${n} ${etiquetaUnidadPlural} × ${formatMoney(precioBolsa)}`,
           },
         ];
@@ -139,6 +169,7 @@ export default function VentaRapida() {
     if (modalModo === 'kilo') {
       const kg = parseFloat(String(kgInput).replace(',', '.')) || 0;
       if (kg <= 0 || precioKg <= 0) return;
+      if (disponibleModal > 0 && kg > disponibleModal) return;
       const subtotal = redondearMonto(kg * precioKg);
       setCarrito((prev) => [
         ...prev,
@@ -149,6 +180,9 @@ export default function VentaRapida() {
           kg,
           precioKg,
           subtotal,
+          unidadStock: 'kg',
+          stockAntes: disponibleModal,
+          stockDespues: Math.max(0, disponibleModal - kg),
           detalleTexto: `${formatKgHuman(kg)} × ${formatMoney(precioKg)}/kg`,
         },
       ]);
@@ -163,6 +197,7 @@ export default function VentaRapida() {
         0;
       if (monto <= 0 || precioKg <= 0) return;
       const kg = monto / precioKg;
+      if (disponibleModal > 0 && kg > disponibleModal) return;
       setCarrito((prev) => [
         ...prev,
         {
@@ -173,6 +208,9 @@ export default function VentaRapida() {
           precioKg,
           kgPorPesos: kg,
           subtotal: redondearMonto(monto),
+          unidadStock: 'kg',
+          stockAntes: disponibleModal,
+          stockDespues: Math.max(0, disponibleModal - kg),
           detalleTexto: `${formatMoney(monto)} → ${formatKgHuman(kg)}`,
         },
       ]);
@@ -285,9 +323,9 @@ export default function VentaRapida() {
     0;
   const kgPorPesos = precioKg > 0 && pesosNum > 0 ? pesosNum / precioKg : 0;
 
-  const puedeConfirmarBolsa = modalModo === 'bolsa' && cantBolsas >= 1;
-  const puedeConfirmarKilo = modalModo === 'kilo' && kgNum > 0 && precioKg > 0;
-  const puedeConfirmarPesos = modalModo === 'pesos' && pesosNum > 0 && precioKg > 0;
+  const puedeConfirmarBolsa = modalModo === 'bolsa' && cantBolsas >= 1 && (disponibleModal <= 0 || cantBolsas <= disponibleModal);
+  const puedeConfirmarKilo = modalModo === 'kilo' && kgNum > 0 && precioKg > 0 && (disponibleModal <= 0 || kgNum <= disponibleModal);
+  const puedeConfirmarPesos = modalModo === 'pesos' && pesosNum > 0 && precioKg > 0 && (disponibleModal <= 0 || kgPorPesos <= disponibleModal);
 
   const modalContenido =
     modalProducto &&
@@ -311,7 +349,12 @@ export default function VentaRapida() {
                 {modalProducto.name}
               </h3>
               <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                {formatMoney(precioBolsa)} / {etiquetaUnidad} · {formatMoney(precioKg)}/kg suelto
+                {ventaPorKg
+                  ? `${formatMoney(precioKg)} / kg`
+                  : `${formatMoney(precioBolsa)} / ${etiquetaUnidad}${precioKg > 0 ? ` · ${formatMoney(precioKg)}/kg suelto` : ''}`}
+              </p>
+              <p className="text-xs text-slate-500 mt-1">
+                Disponible: {formatDisponible(disponibleModal, unidadProducto)}
               </p>
             </div>
             <button
@@ -329,27 +372,33 @@ export default function VentaRapida() {
           {!modalModo && (
             <div className="space-y-2">
               <p className="text-sm font-medium text-slate-700 mb-3">¿Cómo vendés?</p>
-              <button
+              {!ventaPorKg && (
+                <button
                 type="button"
                 onClick={() => setModalModo('bolsa')}
                 className="w-full rounded-xl border-2 border-slate-200 bg-slate-50 py-3 px-4 text-left font-semibold text-slate-800 hover:border-emerald-400 hover:bg-emerald-50/50 transition touch-manipulation"
               >
                 Por {etiquetaUnidad} ({etiquetaUnidadPlural})
               </button>
-              <button
-                type="button"
-                onClick={() => setModalModo('kilo')}
-                className="w-full rounded-xl border-2 border-slate-200 bg-slate-50 py-3 px-4 text-left font-semibold text-slate-800 hover:border-emerald-400 hover:bg-emerald-50/50 transition touch-manipulation"
-              >
-                Por kilo (cobrás según peso)
-              </button>
-              <button
-                type="button"
-                onClick={() => setModalModo('pesos')}
-                className="w-full rounded-xl border-2 border-slate-200 bg-slate-50 py-3 px-4 text-left font-semibold text-slate-800 hover:border-emerald-400 hover:bg-emerald-50/50 transition touch-manipulation"
-              >
-                Por monto ($) (le das el peso que corresponde)
-              </button>
+              )}
+              {mostrarVentaPorPeso && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setModalModo('kilo')}
+                    className="w-full rounded-xl border-2 border-slate-200 bg-slate-50 py-3 px-4 text-left font-semibold text-slate-800 hover:border-emerald-400 hover:bg-emerald-50/50 transition touch-manipulation"
+                  >
+                    Por kilo (cobrás según peso)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalModo('pesos')}
+                    className="w-full rounded-xl border-2 border-slate-200 bg-slate-50 py-3 px-4 text-left font-semibold text-slate-800 hover:border-emerald-400 hover:bg-emerald-50/50 transition touch-manipulation"
+                  >
+                    Por monto ($) (le das el peso que corresponde)
+                  </button>
+                </>
+              )}
             </div>
           )}
 
@@ -391,6 +440,9 @@ export default function VentaRapida() {
               <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-emerald-900">
                 <span className="text-sm font-medium">Total a cobrar</span>
                 <div className="text-xl font-bold">{formatMoney(cantBolsas * precioBolsa)}</div>
+                <p className="text-xs mt-1 opacity-90">
+                  Quedaría: {formatDisponible(Math.max(0, disponibleModal - cantBolsas), unidadProducto)}
+                </p>
               </div>
               <button
                 type="button"
@@ -427,6 +479,9 @@ export default function VentaRapida() {
                 <span className="text-sm font-medium">Cobrar</span>
                 <div className="text-xl font-bold">{kgNum > 0 ? formatMoney(cobrarKilo) : '—'}</div>
                 <p className="text-xs mt-1 opacity-90">{formatMoney(precioKg)} por kg</p>
+                <p className="text-xs mt-1 opacity-90">
+                  Quedaría: {formatKgHuman(Math.max(0, disponibleModal - kgNum))}
+                </p>
               </div>
               <button
                 type="button"
@@ -465,6 +520,9 @@ export default function VentaRapida() {
                   {pesosNum > 0 && precioKg > 0 ? formatKgHuman(kgPorPesos) : '—'}
                 </div>
                 <p className="text-xs mt-2 opacity-90">Cobrás {pesosNum > 0 ? formatMoney(pesosNum) : '—'}</p>
+                <p className="text-xs mt-1 opacity-90">
+                  Quedaría: {formatKgHuman(Math.max(0, disponibleModal - kgPorPesos))}
+                </p>
               </div>
               <button
                 type="button"
@@ -521,7 +579,7 @@ export default function VentaRapida() {
               <p className="text-slate-400 text-center py-6 sm:py-8 text-sm sm:text-base">Todavía no hay productos. Cargá el primero desde Stock.</p>
             ) : (
               <ul className="p-2 space-y-1">
-                {productosFiltrados.map((p) => {
+                {productosConStock.map((p) => {
                   const pb = parsePrecioStr(p.price);
                   const pk = Number(p.precioKg) || 0;
                   const fardo = esFardo(p.stock);
@@ -534,9 +592,13 @@ export default function VentaRapida() {
                       >
                         <div className="min-w-0">
                           <div className="font-semibold text-slate-800 text-sm sm:text-base truncate">{p.name}</div>
-                          <div className="text-xs sm:text-sm text-slate-500">{p.stock}</div>
+                          <div className="text-xs sm:text-sm text-slate-500">
+                            Disponible: {formatDisponible(p.disponible, p.unidad)}
+                          </div>
                           <div className="text-xs text-slate-400 mt-0.5">
-                            {formatMoney(pb)}/{fardo ? 'fardo' : 'bolsa'} · {formatMoney(pk)}/kg
+                            {p.unidad === 'kg'
+                              ? `${formatMoney(pk)}/kg`
+                              : `${formatMoney(pb)}/${p.unidad === 'unidades' ? 'unidad' : fardo ? 'fardo' : 'bolsa'}${pk > 0 ? ` · ${formatMoney(pk)}/kg` : ''}`}
                           </div>
                         </div>
                         <div className="text-right shrink-0">
