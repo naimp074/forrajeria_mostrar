@@ -1,5 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useGastos } from '../context/GastosContext';
+import { usePagination } from '../hooks/usePagination';
+import Paginacion from './Paginacion';
 
 const estadoInicial = () => ({});
 
@@ -18,6 +20,8 @@ export default function ComprasVentasGanancias({ porProducto: porProductoProp, s
       .sort((a, b) => a.localeCompare(b, 'es'))
       .map((name) => ({ key: name, catalog: null }));
   }, [porProducto]);
+
+  const stockPaginacion = usePagination(filasStock, { pageSize: 15 });
 
   const totalCostoStock = useMemo(() => {
     return filasStock.reduce((sum, row) => {
@@ -89,7 +93,7 @@ export default function ComprasVentasGanancias({ porProducto: porProductoProp, s
               Todavía no hay productos cargados.
             </div>
           )}
-          {filasStock.map((row) => {
+          {stockPaginacion.paginatedItems.map((row) => {
             const name = row.key;
             const datos = porProducto[name] || { cantidadComprada: 0, cantidadVendida: 0, precioCompra: 0, precioVenta: 0 };
             const precioVentaNum = Number(datos.precioVenta) || 0;
@@ -166,7 +170,7 @@ export default function ComprasVentasGanancias({ porProducto: porProductoProp, s
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {filasStock.map((row) => {
+            {stockPaginacion.paginatedItems.map((row) => {
               const name = row.key;
               const defaultDatos = { cantidadComprada: 0, cantidadVendida: 0, precioCompra: 0, precioVenta: 0 };
               const datos = porProducto[name] || defaultDatos;
@@ -252,6 +256,14 @@ export default function ComprasVentasGanancias({ porProducto: porProductoProp, s
           </tbody>
         </table>
         </div>
+        <Paginacion
+          page={stockPaginacion.page}
+          totalPages={stockPaginacion.totalPages}
+          totalItems={stockPaginacion.totalItems}
+          from={stockPaginacion.from}
+          to={stockPaginacion.to}
+          onPageChange={stockPaginacion.setPage}
+        />
         <div className="mt-4 space-y-1">
           <p className="text-sm text-slate-500">
             % ganancia = ((precio venta − precio compra) / precio compra) × 100

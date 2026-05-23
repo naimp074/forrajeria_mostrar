@@ -1,6 +1,8 @@
 /* eslint react-hooks/set-state-in-effect: off */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useProductos } from '../context/ProductosContext';
+import { usePagination } from '../hooks/usePagination';
+import Paginacion from './Paginacion';
 
 const MARGEN_DEFAULT = '30';
 
@@ -54,6 +56,18 @@ export default function AgregarStock({ datosPorProducto = {}, onRegistrarIngreso
   const [numeroProveedor, setNumeroProveedor] = useState('');
   const [observacion, setObservacion] = useState('');
   const [enviado, setEnviado] = useState(false);
+  const [busquedaCatalogo, setBusquedaCatalogo] = useState('');
+
+  const productosFiltrados = useMemo(() => {
+    const q = busquedaCatalogo.trim().toLowerCase();
+    if (!q) return productos;
+    return productos.filter((p) => p.name.toLowerCase().includes(q));
+  }, [busquedaCatalogo, productos]);
+
+  const catalogoPaginacion = usePagination(productosFiltrados, {
+    pageSize: 20,
+    resetKey: busquedaCatalogo,
+  });
 
   const productoSeleccionado = productos.find((p) => p.name === producto);
   const unidadSugeridaCatalogo = productoSeleccionado?.stock.includes('fardos') ? 'fardos' : 'bolsas';
@@ -68,6 +82,14 @@ export default function AgregarStock({ datosPorProducto = {}, onRegistrarIngreso
       setProducto(productos[0].name);
     }
   }, [producto, productos]);
+
+  useEffect(() => {
+    if (origenProducto !== 'catalogo' || catalogoPaginacion.paginatedItems.length === 0) return;
+    const visible = catalogoPaginacion.paginatedItems.some((p) => p.name === producto);
+    if (!visible) {
+      setProducto(catalogoPaginacion.paginatedItems[0].name);
+    }
+  }, [catalogoPaginacion.paginatedItems, origenProducto, producto]);
 
   useEffect(() => {
     if (origenProducto !== 'catalogo') return;
@@ -194,22 +216,40 @@ export default function AgregarStock({ datosPorProducto = {}, onRegistrarIngreso
           </div>
 
           {origenProducto === 'catalogo' ? (
-            <select
-              value={producto}
-              onChange={(e) => {
-                setProducto(e.target.value);
-                const p = productos.find((x) => x.name === e.target.value);
-                setUnidad(p?.stock.includes('fardos') ? 'fardos' : 'bolsas');
-              }}
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 px-4 text-slate-800 focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400"
-              required
-            >
-              {productos.map((p) => (
-                <option key={p.name} value={p.name}>
-                  {p.name} — {p.stock}
-                </option>
-              ))}
-            </select>
+            <div className="space-y-3">
+              <input
+                type="search"
+                value={busquedaCatalogo}
+                onChange={(e) => setBusquedaCatalogo(e.target.value)}
+                placeholder="Buscar producto en catálogo..."
+                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-slate-800 text-sm placeholder:text-slate-400 focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400"
+              />
+              <select
+                value={producto}
+                onChange={(e) => {
+                  setProducto(e.target.value);
+                  const p = productos.find((x) => x.name === e.target.value);
+                  setUnidad(p?.stock.includes('fardos') ? 'fardos' : 'bolsas');
+                }}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 px-4 text-slate-800 focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400"
+                required
+              >
+                {catalogoPaginacion.paginatedItems.map((p) => (
+                  <option key={p.name} value={p.name}>
+                    {p.name} — {p.stock}
+                  </option>
+                ))}
+              </select>
+              <Paginacion
+                page={catalogoPaginacion.page}
+                totalPages={catalogoPaginacion.totalPages}
+                totalItems={catalogoPaginacion.totalItems}
+                from={catalogoPaginacion.from}
+                to={catalogoPaginacion.to}
+                onPageChange={catalogoPaginacion.setPage}
+                className="mt-0 pt-0 border-0"
+              />
+            </div>
           ) : (
             <input
               type="text"

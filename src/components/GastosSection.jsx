@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useGastos } from '../context/GastosContext';
 import { categoriasGastos } from '../data/mockData';
+import { usePagination } from '../hooks/usePagination';
+import Paginacion from './Paginacion';
 
 const CATEGORIAS_OPTIONS = [
   'comida',
@@ -53,6 +55,12 @@ export default function GastosSection() {
     acc[cat] = gastos.filter((g) => g.categoria === cat).reduce((s, g) => s + g.monto, 0);
     return acc;
   }, {});
+
+  const gastosOrdenados = useMemo(
+    () => [...gastos].sort((a, b) => String(b.fecha).localeCompare(String(a.fecha))),
+    [gastos]
+  );
+  const gastosPaginacion = usePagination(gastosOrdenados, { pageSize: 15 });
 
   return (
     <section className="rounded-2xl sm:rounded-[28px] bg-white border border-slate-200 shadow-lg overflow-hidden">
@@ -160,8 +168,8 @@ export default function GastosSection() {
 
         <div>
           <h3 className="font-semibold text-slate-800 mb-3">Últimos gastos cargados</h3>
-          <ul className="space-y-2 max-h-64 overflow-y-auto">
-            {gastos.map((g) => (
+          <ul className="space-y-2">
+            {gastosPaginacion.paginatedItems.map((g) => (
               <li
                 key={g.id}
                 className="rounded-xl bg-slate-50 border border-slate-200 p-3 flex flex-wrap items-center justify-between gap-2"
@@ -180,6 +188,14 @@ export default function GastosSection() {
               </li>
             ))}
           </ul>
+          <Paginacion
+            page={gastosPaginacion.page}
+            totalPages={gastosPaginacion.totalPages}
+            totalItems={gastosPaginacion.totalItems}
+            from={gastosPaginacion.from}
+            to={gastosPaginacion.to}
+            onPageChange={gastosPaginacion.setPage}
+          />
         </div>
       </div>
     </section>

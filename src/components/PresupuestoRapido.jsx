@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import Carrito from './Carrito';
+import Paginacion from './Paginacion';
 import { useStock } from '../context/StockContext';
 import { useProductos } from '../context/ProductosContext';
 import { crearPresupuesto, listarPresupuestos } from '../services/supabaseData';
+import { usePagination } from '../hooks/usePagination';
 
 const PRESUPUESTOS_KEY = 'forrajeria_presupuestos_v2';
 
@@ -88,6 +90,13 @@ export default function PresupuestoRapido() {
     if (!q) return conPrecio;
     return conPrecio.filter((p) => p.name.toLowerCase().includes(q) || p.stock.toLowerCase().includes(q));
   }, [busqueda, porProducto, productos]);
+
+  const listaPaginacion = usePagination(productosFiltrados, {
+    pageSize: 20,
+    resetKey: busqueda,
+  });
+
+  const historialPaginacion = usePagination(presupuestos, { pageSize: 10 });
 
   const agregarAlCarrito = (nombre, precioUnitario) => {
     const existente = carrito.find((i) => i.nombre === nombre);
@@ -187,8 +196,9 @@ export default function PresupuestoRapido() {
                   Todavía no hay productos. Cargá el primero desde Stock.
                 </p>
               ) : (
+                <>
                 <ul className="p-2 space-y-1">
-                  {productosFiltrados.map((p) => (
+                  {listaPaginacion.paginatedItems.map((p) => (
                     <li key={p.name}>
                       <button
                         type="button"
@@ -209,6 +219,16 @@ export default function PresupuestoRapido() {
                     </li>
                   ))}
                 </ul>
+                <Paginacion
+                  page={listaPaginacion.page}
+                  totalPages={listaPaginacion.totalPages}
+                  totalItems={listaPaginacion.totalItems}
+                  from={listaPaginacion.from}
+                  to={listaPaginacion.to}
+                  onPageChange={listaPaginacion.setPage}
+                  className="px-2 pb-2 mt-0 pt-3"
+                />
+                </>
               )}
             </div>
           </div>
@@ -261,7 +281,7 @@ export default function PresupuestoRapido() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {presupuestos.slice(0, 5).map((p) => (
+                {historialPaginacion.paginatedItems.map((p) => (
                   <tr key={p.id} className="align-middle">
                     <td className="py-3 text-slate-700 text-sm">{p.fecha}</td>
                     <td className="py-3 text-slate-800 font-medium text-sm">{p.cliente}</td>
@@ -271,6 +291,15 @@ export default function PresupuestoRapido() {
                 ))}
               </tbody>
             </table>
+            <Paginacion
+              page={historialPaginacion.page}
+              totalPages={historialPaginacion.totalPages}
+              totalItems={historialPaginacion.totalItems}
+              from={historialPaginacion.from}
+              to={historialPaginacion.to}
+              onPageChange={historialPaginacion.setPage}
+              className="px-4 sm:px-6 pb-4"
+            />
           </div>
         </section>
       )}

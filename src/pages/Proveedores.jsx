@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { listarIngresosStock, listarProveedoresCatalogo } from '../services/supabaseData';
 import { useProductos } from '../context/ProductosContext';
+import { usePagination } from '../hooks/usePagination';
+import Paginacion from '../components/Paginacion';
 
 const INGRESOS_KEY = 'forrajeria_ingresos_v2';
 
@@ -127,6 +129,19 @@ export default function Proveedores() {
   const hayResultados = resultadosProducto.length > 0 || resultadosProveedor.length > 0;
   const tieneProveedores = todosProveedores.length > 0;
 
+  const proveedoresPaginacion = usePagination(todosProveedores, {
+    pageSize: 15,
+    resetKey: busqueda,
+  });
+  const productosBusquedaPaginacion = usePagination(resultadosProducto, {
+    pageSize: 10,
+    resetKey: busqueda,
+  });
+  const proveedoresBusquedaPaginacion = usePagination(resultadosProveedor, {
+    pageSize: 10,
+    resetKey: busqueda,
+  });
+
   return (
     <div className="space-y-6 sm:space-y-8">
       <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight">Proveedores</h1>
@@ -164,7 +179,7 @@ export default function Proveedores() {
                     Productos que coinciden — quién te lo vende
                   </h3>
                   <div className="space-y-3">
-                    {resultadosProducto.map(([producto, proveedores]) => (
+                    {productosBusquedaPaginacion.paginatedItems.map(([producto, proveedores]) => (
                       <div
                         key={producto}
                         className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4"
@@ -181,6 +196,14 @@ export default function Proveedores() {
                       </div>
                     ))}
                   </div>
+                  <Paginacion
+                    page={productosBusquedaPaginacion.page}
+                    totalPages={productosBusquedaPaginacion.totalPages}
+                    totalItems={productosBusquedaPaginacion.totalItems}
+                    from={productosBusquedaPaginacion.from}
+                    to={productosBusquedaPaginacion.to}
+                    onPageChange={productosBusquedaPaginacion.setPage}
+                  />
                 </div>
               )}
 
@@ -190,7 +213,7 @@ export default function Proveedores() {
                     Proveedores que coinciden — qué te vende
                   </h3>
                   <div className="space-y-3">
-                    {resultadosProveedor.map(([key, data]) => (
+                    {proveedoresBusquedaPaginacion.paginatedItems.map(([key, data]) => (
                       <div
                         key={key}
                         className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4"
@@ -207,6 +230,14 @@ export default function Proveedores() {
                       </div>
                     ))}
                   </div>
+                  <Paginacion
+                    page={proveedoresBusquedaPaginacion.page}
+                    totalPages={proveedoresBusquedaPaginacion.totalPages}
+                    totalItems={proveedoresBusquedaPaginacion.totalItems}
+                    from={proveedoresBusquedaPaginacion.from}
+                    to={proveedoresBusquedaPaginacion.to}
+                    onPageChange={proveedoresBusquedaPaginacion.setPage}
+                  />
                 </div>
               )}
 
@@ -239,7 +270,7 @@ export default function Proveedores() {
                     </tr>
                   </thead>
                   <tbody>
-                    {todosProveedores.map(({ key, proveedor, numeroProveedor }) => {
+                    {proveedoresPaginacion.paginatedItems.map(({ key, proveedor, numeroProveedor }) => {
                       const data = proveedorToProducts[key];
                       if (!data) return null;
                       return (
@@ -253,6 +284,14 @@ export default function Proveedores() {
                   </tbody>
                 </table>
               </div>
+              <Paginacion
+                page={proveedoresPaginacion.page}
+                totalPages={proveedoresPaginacion.totalPages}
+                totalItems={proveedoresPaginacion.totalItems}
+                from={proveedoresPaginacion.from}
+                to={proveedoresPaginacion.to}
+                onPageChange={proveedoresPaginacion.setPage}
+              />
             </div>
           )}
         </div>

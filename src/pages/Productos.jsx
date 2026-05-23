@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 import { useProductos } from '../context/ProductosContext';
 import { useStock } from '../context/StockContext';
 import { registrarIngresoStock } from '../services/supabaseData';
+import { usePagination } from '../hooks/usePagination';
+import Paginacion from '../components/Paginacion';
 
 const MARGEN_DEFAULT = '30';
 
@@ -190,6 +192,11 @@ export default function Productos() {
     });
   }, [busquedaCatalogo, productosConPreciosStock]);
 
+  const catalogoPaginacion = usePagination(productosFiltrados, {
+    pageSize: 20,
+    resetKey: busquedaCatalogo,
+  });
+
   const { topNoTengo, ultimosPedidos } = useMemo(() => {
     const porProducto = {};
     listaPedidos.forEach((ped) => {
@@ -200,10 +207,12 @@ export default function Productos() {
       .map(([nombre, veces]) => ({ producto: nombre, veces }))
       .sort((a, b) => b.veces - a.veces);
     const ultimos = [...listaPedidos]
-      .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
-      .slice(0, 8);
+      .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
     return { topNoTengo: noTengo, ultimosPedidos: ultimos };
   }, [nombresEnCatalogo, listaPedidos]);
+
+  const pedidosPaginacion = usePagination(ultimosPedidos, { pageSize: 8 });
+  const noTengoPaginacion = usePagination(topNoTengo, { pageSize: 10 });
 
   const guardarPedido = (e) => {
     e.preventDefault();
@@ -476,13 +485,13 @@ export default function Productos() {
                   Top: lo que más te piden y no tenés
                 </h3>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {topNoTengo.map((item, i) => (
+                  {noTengoPaginacion.paginatedItems.map((item, i) => (
                     <div
                       key={item.producto}
                       className="flex items-center gap-4 rounded-2xl border border-amber-200 bg-amber-50/80 p-4"
                     >
                       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-200 text-amber-800 font-bold">
-                        {i + 1}
+                        {noTengoPaginacion.from + i}
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="font-semibold text-slate-800">{item.producto}</div>
@@ -496,6 +505,14 @@ export default function Productos() {
                     </div>
                   ))}
                 </div>
+                <Paginacion
+                  page={noTengoPaginacion.page}
+                  totalPages={noTengoPaginacion.totalPages}
+                  totalItems={noTengoPaginacion.totalItems}
+                  from={noTengoPaginacion.from}
+                  to={noTengoPaginacion.to}
+                  onPageChange={noTengoPaginacion.setPage}
+                />
               </div>
             )}
             <div>
@@ -513,10 +530,10 @@ export default function Productos() {
                     </tr>
                   </thead>
                   <tbody>
-                    {ultimosPedidos.map((ped, idx) => {
+                    {pedidosPaginacion.paginatedItems.map((ped, idx) => {
                       const tiene = nombresEnCatalogo.includes(ped.producto);
                       return (
-                        <tr key={idx} className="border-b border-slate-100 last:border-0">
+                        <tr key={`${ped.producto}-${ped.fecha}-${idx}`} className="border-b border-slate-100 last:border-0">
                           <td className="py-2 px-4 font-medium text-slate-800">{ped.producto}</td>
                           <td className="py-2 px-4 text-slate-600">{ped.cliente}</td>
                           <td className="py-2 px-4 text-slate-500">{ped.fecha}</td>
@@ -533,6 +550,14 @@ export default function Productos() {
                   </tbody>
                 </table>
               </div>
+              <Paginacion
+                page={pedidosPaginacion.page}
+                totalPages={pedidosPaginacion.totalPages}
+                totalItems={pedidosPaginacion.totalItems}
+                from={pedidosPaginacion.from}
+                to={pedidosPaginacion.to}
+                onPageChange={pedidosPaginacion.setPage}
+              />
             </div>
           </>
         ) : (
@@ -852,7 +877,7 @@ export default function Productos() {
           </div>
         )}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {productosFiltrados.map((p) => (
+          {catalogoPaginacion.paginatedItems.map((p) => (
             <div
               key={p.name}
               className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
@@ -924,6 +949,14 @@ export default function Productos() {
             </div>
           ))}
         </div>
+        <Paginacion
+          page={catalogoPaginacion.page}
+          totalPages={catalogoPaginacion.totalPages}
+          totalItems={catalogoPaginacion.totalItems}
+          from={catalogoPaginacion.from}
+          to={catalogoPaginacion.to}
+          onPageChange={catalogoPaginacion.setPage}
+        />
       </section>
     </div>
   );

@@ -1,9 +1,11 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import Carrito from './Carrito';
+import Paginacion from './Paginacion';
 import { useStock } from '../context/StockContext';
 import { useProductos } from '../context/ProductosContext';
 import { crearVenta } from '../services/supabaseData';
+import { usePagination } from '../hooks/usePagination';
 
 const IconoBuscar = () => (
   <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -49,6 +51,21 @@ function formatDisponible(cantidad, unidad = 'unidades') {
   return `${n.toLocaleString('es-AR', { maximumFractionDigits: 3 })} ${unidad}`;
 }
 
+const MARGEN_DEFAULT = 30;
+
+function calcularPrecioVenta(precioCompra, margenPorcentaje = MARGEN_DEFAULT) {
+  const compra = Number(precioCompra) || 0;
+  const margen = Number(margenPorcentaje) || MARGEN_DEFAULT;
+  if (compra <= 0) return 0;
+  return Math.round(compra * (1 + margen / 100));
+}
+
+function resolverPrecioVenta(stock, producto) {
+  const precioCompra = Number(stock.precioCompra) || Number(producto.precioCompra) || 0;
+  const precioVentaGuardado = Number(stock.precioVenta) || parsePrecioStr(producto.price);
+  return precioVentaGuardado || calcularPrecioVenta(precioCompra);
+}
+
 export default function VentaRapida() {
   const { porProducto, setPorProducto } = useStock();
   const { productos, loading: loadingProductos, error: errorProductos } = useProductos();
@@ -90,16 +107,20 @@ export default function VentaRapida() {
     return productosFiltrados.map((producto) => {
       const stock = porProducto[producto.name] || {};
       const disponible = Math.max(0, (Number(stock.cantidadComprada) || 0) - (Number(stock.cantidadVendida) || 0));
+      const precioVenta = resolverPrecioVenta(stock, producto);
       return {
         ...producto,
         disponible,
-        price: Number(stock.precioVenta) || parsePrecioStr(producto.price),
-        precioKg: producto.unidad === 'kg'
-          ? (Number(stock.precioVenta) || parsePrecioStr(producto.price))
-          : (Number(producto.precioKg) || 0),
+        price: precioVenta,
+        precioKg: producto.unidad === 'kg' ? precioVenta : (Number(producto.precioKg) || 0),
       };
     });
   }, [productosFiltrados, porProducto]);
+
+  const listaPaginacion = usePagination(productosConStock, {
+    pageSize: 10,
+    resetKey: busqueda,
+  });
 
   const abrirModal = (p) => {
     setModalProducto(p);
@@ -578,8 +599,9 @@ export default function VentaRapida() {
             ) : productosFiltrados.length === 0 ? (
               <p className="text-slate-400 text-center py-6 sm:py-8 text-sm sm:text-base">Todavía no hay productos. Cargá el primero desde Stock.</p>
             ) : (
+              <>
               <ul className="p-2 space-y-1">
-                {productosConStock.map((p) => {
+                {listaPaginacion.paginatedItems.map((p) => {
                   const pb = parsePrecioStr(p.price);
                   const pk = Number(p.precioKg) || 0;
                   const fardo = esFardo(p.stock);
@@ -609,6 +631,16 @@ export default function VentaRapida() {
                   );
                 })}
               </ul>
+              <Paginacion
+                page={listaPaginacion.page}
+                totalPages={listaPaginacion.totalPages}
+                totalItems={listaPaginacion.totalItems}
+                from={listaPaginacion.from}
+                to={listaPaginacion.to}
+                onPageChange={listaPaginacion.setPage}
+                className="px-2 pb-2 mt-0 pt-3"
+              />
+              </>
             )}
           </div>
         </div>

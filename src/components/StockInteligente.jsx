@@ -1,4 +1,7 @@
+import { useMemo } from 'react';
 import { useStock } from '../context/StockContext';
+import { usePagination } from '../hooks/usePagination';
+import Paginacion from './Paginacion';
 
 function sugerenciaReposicion(items) {
   const paraReponer = items.filter(
@@ -14,18 +17,23 @@ function sugerenciaReposicion(items) {
 
 export default function StockInteligente() {
   const { porProducto } = useStock();
-  const lowStock = Object.entries(porProducto)
-    .map(([name, datos]) => {
-      const disponible = Math.max(0, (Number(datos.cantidadComprada) || 0) - (Number(datos.cantidadVendida) || 0));
-      if (disponible > 5) return null;
-      return {
-        id: name,
-        name,
-        qty: `${disponible} unidades`,
-        status: disponible === 0 ? 'Sin stock' : 'Stock bajo',
-      };
-    })
-    .filter(Boolean);
+  const lowStock = useMemo(
+    () =>
+      Object.entries(porProducto)
+        .map(([name, datos]) => {
+          const disponible = Math.max(0, (Number(datos.cantidadComprada) || 0) - (Number(datos.cantidadVendida) || 0));
+          if (disponible > 5) return null;
+          return {
+            id: name,
+            name,
+            qty: `${disponible} unidades`,
+            status: disponible === 0 ? 'Sin stock' : 'Stock bajo',
+          };
+        })
+        .filter(Boolean),
+    [porProducto]
+  );
+  const alertasPaginacion = usePagination(lowStock, { pageSize: 10 });
   const textoSugerencia = sugerenciaReposicion(lowStock);
 
   return (
@@ -42,7 +50,7 @@ export default function StockInteligente() {
             Todavía no hay alertas. Cargá productos y stock para empezar.
           </div>
         )}
-        {lowStock.map((item) => (
+        {alertasPaginacion.paginatedItems.map((item) => (
           <div
             key={item.id}
             className="rounded-2xl border border-slate-200 bg-slate-50 p-3 sm:p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
@@ -56,6 +64,14 @@ export default function StockInteligente() {
             </span>
           </div>
         ))}
+        <Paginacion
+          page={alertasPaginacion.page}
+          totalPages={alertasPaginacion.totalPages}
+          totalItems={alertasPaginacion.totalItems}
+          from={alertasPaginacion.from}
+          to={alertasPaginacion.to}
+          onPageChange={alertasPaginacion.setPage}
+        />
 
         {textoSugerencia && (
           <div className="rounded-2xl sm:rounded-3xl border border-dashed border-emerald-300 bg-emerald-50 p-4 sm:p-5">

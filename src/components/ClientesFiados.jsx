@@ -1,5 +1,9 @@
+import { usePagination } from '../hooks/usePagination';
+import Paginacion from './Paginacion';
+
 export default function ClientesFiados() {
   const debtClients = [];
+  const clientesPaginacion = usePagination(debtClients, { pageSize: 10 });
 
   return (
     <section className="rounded-2xl sm:rounded-[28px] bg-white border border-slate-200 shadow-lg overflow-hidden">
@@ -15,7 +19,7 @@ export default function ClientesFiados() {
             Todavía no hay clientes registrados.
           </div>
         )}
-        {debtClients.map(([name, debt, time]) => (
+        {clientesPaginacion.paginatedItems.map(([name, debt, time]) => (
           <div
             key={name}
             className="rounded-2xl border border-slate-200 bg-slate-50 p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4"
@@ -30,6 +34,14 @@ export default function ClientesFiados() {
             </div>
           </div>
         ))}
+        <Paginacion
+          page={clientesPaginacion.page}
+          totalPages={clientesPaginacion.totalPages}
+          totalItems={clientesPaginacion.totalItems}
+          from={clientesPaginacion.from}
+          to={clientesPaginacion.to}
+          onPageChange={clientesPaginacion.setPage}
+        />
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
           <button type="button" className="rounded-2xl border border-slate-300 bg-white py-3.5 sm:py-3 font-semibold text-sm sm:text-base touch-manipulation">
