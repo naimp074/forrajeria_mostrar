@@ -22,6 +22,8 @@ create table if not exists public.productos (
   precio_unidad numeric not null default 0,
   precio_kg numeric not null default 0,
   precio_compra_ref numeric not null default 0,
+  margen_bolsa numeric,
+  margen_kg numeric,
   unidad_default text not null default 'bolsas',
   proveedor_nombre text,
   proveedor_telefono text,

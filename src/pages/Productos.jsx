@@ -9,8 +9,13 @@ import {
   calcularPrecioCompraKg,
   calcularPrecioVentaKg,
 } from '../utils/preciosKg';
-
-const MARGEN_DEFAULT = '30';
+import {
+  MARGEN_DEFAULT,
+  calcularPrecioVenta,
+  formatearMargen,
+  resolverMargenBolsa,
+  resolverMargenKg,
+} from '../utils/margenes';
 
 function formatMoneda(n) {
   return '$' + Number(n).toLocaleString('es-AR').replace(/,/g, '.');
@@ -26,10 +31,11 @@ function parseNumero(valor) {
   return parseFloat(normalizado) || 0;
 }
 
-function calcularPrecioVenta(precioCompra, margenPorcentaje) {
-  const compra = parseNumero(precioCompra);
-  const margen = parseNumero(margenPorcentaje);
-  return Math.round(compra * (1 + margen / 100));
+function etiquetaVentaUnidad(unidad) {
+  if (unidad === 'fardos') return 'fardo';
+  if (unidad === 'unidades') return 'unidad';
+  if (unidad === 'kg') return 'kg';
+  return 'bolsa';
 }
 
 function calcularCostoUnitario(precioCompraTotal, cantidad) {
@@ -39,16 +45,10 @@ function calcularCostoUnitario(precioCompraTotal, cantidad) {
   return total / cant;
 }
 
-function calcularMargen(precioCompra, precioVenta) {
-  const compra = Number(precioCompra) || 0;
-  const venta = Number(precioVenta) || 0;
-  if (compra <= 0 || venta <= 0) return '';
-  const margen = ((venta - compra) / compra) * 100;
-  return Number.isInteger(margen) ? String(margen) : margen.toFixed(1).replace(/\.0$/, '');
-}
-
-function margenProducto(producto) {
-  return calcularMargen(producto.precioCompra, producto.price) || MARGEN_DEFAULT;
+function margenesProducto(producto, precioCompra, precioVenta, precioKg, kgPorUnidad) {
+  const margenBolsa = resolverMargenBolsa(producto, precioCompra, precioVenta);
+  const margenKg = resolverMargenKg(producto, precioCompra, { precioVenta, precioKg, kgPorUnidad });
+  return { margenBolsa, margenKg };
 }
 
 function stockDisponible(datos) {
@@ -93,7 +93,8 @@ export default function Productos() {
   const [formProducto, setFormProducto] = useState({
     nombre: '',
     precioUnidad: '',
-    margenPorcentaje: MARGEN_DEFAULT,
+    margenBolsa: String(MARGEN_DEFAULT),
+    margenKg: String(MARGEN_DEFAULT),
     precioKg: '',
     kgPorUnidad: '',
     precioCompra: '',
@@ -121,19 +122,27 @@ export default function Productos() {
       const disponible = stockDisponible(stock);
       const precioCompra = precioCompraStock || Number(producto.precioCompra) || 0;
       const precioVentaGuardado = precioVentaStock || Number(producto.price) || 0;
-      const precioVenta = precioVentaGuardado || calcularPrecioVenta(precioCompra, MARGEN_DEFAULT);
-      const margen = margenProducto({ ...producto, precioCompra, price: precioVenta });
       const kgPorUnidad = extraerKgDelNombre(producto.name);
+      const margenBolsa = resolverMargenBolsa(producto, precioCompra, precioVentaGuardado);
+      const precioKgGuardado = Number(producto.precioKg) || 0;
+      const margenKg = resolverMargenKg(producto, precioCompra, {
+        precioVenta: precioVentaGuardado,
+        precioKg: precioKgGuardado,
+        kgPorUnidad,
+      });
+      const precioVenta = precioVentaGuardado || calcularPrecioVenta(precioCompra, margenBolsa);
       const precioKg = producto.unidad === 'kg'
         ? precioVenta
         : kgPorUnidad > 0
-          ? calcularPrecioVentaKg(precioCompra, kgPorUnidad, margen)
-          : Number(producto.precioKg) || 0;
+          ? (precioKgGuardado || calcularPrecioVentaKg(precioCompra, kgPorUnidad, margenKg))
+          : precioKgGuardado;
       return {
         ...producto,
         precioCompra,
         price: precioVenta,
         precioKg,
+        margenBolsa,
+        margenKg,
         cantidadDisponible: disponible,
         stock: formatCantidad(disponible, producto.unidad),
       };
@@ -144,10 +153,12 @@ export default function Productos() {
   const costoFormulario = (editandoProducto || esUnidadKg)
     ? parseNumero(formProducto.precioCompra)
     : calcularCostoUnitario(formProducto.precioCompra, formProducto.cantidad);
-  const precioVentaFormulario = calcularPrecioVenta(costoFormulario, formProducto.margenPorcentaje);
+  const precioVentaFormulario = esUnidadKg
+    ? calcularPrecioVenta(costoFormulario, formProducto.margenKg)
+    : calcularPrecioVenta(costoFormulario, formProducto.margenBolsa);
   const kgPorUnidadForm = parseNumero(formProducto.kgPorUnidad) || extraerKgDelNombre(formProducto.nombre);
   const precioVentaKgForm = !esUnidadKg && kgPorUnidadForm > 0
-    ? calcularPrecioVentaKg(costoFormulario, kgPorUnidadForm, formProducto.margenPorcentaje)
+    ? calcularPrecioVentaKg(costoFormulario, kgPorUnidadForm, formProducto.margenKg)
     : 0;
   const costoKgForm = kgPorUnidadForm > 0 ? calcularPrecioCompraKg(costoFormulario, kgPorUnidadForm) : 0;
 
@@ -256,10 +267,18 @@ export default function Productos() {
   const iniciarEdicion = (producto) => {
     setEditandoProducto(producto);
     setMostrarFormProducto(true);
+    const { margenBolsa, margenKg } = margenesProducto(
+      producto,
+      producto.precioCompra,
+      producto.price,
+      producto.precioKg,
+      extraerKgDelNombre(producto.name),
+    );
     setFormProducto({
       nombre: producto.name || '',
       precioUnidad: String(producto.price ?? ''),
-      margenPorcentaje: margenProducto(producto),
+      margenBolsa: formatearMargen(margenBolsa),
+      margenKg: formatearMargen(margenKg),
       precioKg: String(producto.precioKg ?? ''),
       kgPorUnidad: String(extraerKgDelNombre(producto.name) || ''),
       precioCompra: String(producto.precioCompra ?? ''),
@@ -280,7 +299,8 @@ export default function Productos() {
     setFormProducto({
       nombre: '',
       precioUnidad: '',
-      margenPorcentaje: MARGEN_DEFAULT,
+      margenBolsa: String(MARGEN_DEFAULT),
+    margenKg: String(MARGEN_DEFAULT),
       precioKg: '',
       kgPorUnidad: '',
       precioCompra: '',
@@ -299,7 +319,8 @@ export default function Productos() {
     setFormProducto({
       nombre: '',
       precioUnidad: '',
-      margenPorcentaje: MARGEN_DEFAULT,
+      margenBolsa: String(MARGEN_DEFAULT),
+    margenKg: String(MARGEN_DEFAULT),
       precioKg: '',
       kgPorUnidad: '',
       precioCompra: '',
@@ -333,12 +354,17 @@ export default function Productos() {
       const precioCompra = (editandoProducto || esKg)
         ? parseNumero(formProducto.precioCompra)
         : calcularCostoUnitario(formProducto.precioCompra, formProducto.cantidad);
-      const precioVentaCalculado = calcularPrecioVenta(precioCompra, formProducto.margenPorcentaje);
+      const margenBolsa = parseNumero(formProducto.margenBolsa) || MARGEN_DEFAULT;
+      const margenKg = parseNumero(formProducto.margenKg) || margenBolsa;
+      const margenBolsaFinal = esKg ? margenKg : margenBolsa;
+      const precioVentaCalculado = esKg
+        ? calcularPrecioVenta(precioCompra, margenKg)
+        : calcularPrecioVenta(precioCompra, margenBolsa);
       const kgPorUnidad = parseNumero(formProducto.kgPorUnidad) || extraerKgDelNombre(nombre);
       const precioKgFinal = esKg
         ? precioVentaCalculado
         : kgPorUnidad > 0
-          ? calcularPrecioVentaKg(precioCompra, kgPorUnidad, formProducto.margenPorcentaje)
+          ? calcularPrecioVentaKg(precioCompra, kgPorUnidad, margenKg)
           : parseNumero(formProducto.precioKg);
       const payload = {
         ...formProducto,
@@ -346,6 +372,8 @@ export default function Productos() {
         precioCompra,
         precioUnidad: precioVentaCalculado,
         precioKg: precioKgFinal,
+        margenBolsa: margenBolsaFinal,
+        margenKg,
         unidad: formProducto.unidad,
       };
       const precioVenta = precioVentaCalculado;
@@ -834,18 +862,38 @@ export default function Productos() {
                     : (editandoProducto ? 'Se usa para recalcular el precio de venta.' : 'Precio compra total dividido por cantidad.')}
                 </span>
               </div>
-              <label className="block">
-                <span className="block text-sm font-medium text-slate-600 mb-1">% de ganancia</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={formProducto.margenPorcentaje}
-                  onChange={(e) => setFormProducto((prev) => ({ ...prev, margenPorcentaje: e.target.value }))}
-                  placeholder="Ej: 30"
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                />
-              </label>
+              <div className={esUnidadKg ? 'block' : 'grid grid-cols-1 sm:grid-cols-2 gap-3'}>
+                {!esUnidadKg && (
+                  <label className="block">
+                    <span className="block text-sm font-medium text-slate-600 mb-1">
+                      % ganancia por {etiquetaVentaUnidad(formProducto.unidad)}
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={formProducto.margenBolsa}
+                      onChange={(e) => setFormProducto((prev) => ({ ...prev, margenBolsa: e.target.value }))}
+                      placeholder="Ej: 30"
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                    />
+                  </label>
+                )}
+                <label className="block">
+                  <span className="block text-sm font-medium text-slate-600 mb-1">
+                    {esUnidadKg ? '% ganancia por kg' : '% ganancia por kg suelto'}
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={formProducto.margenKg}
+                    onChange={(e) => setFormProducto((prev) => ({ ...prev, margenKg: e.target.value }))}
+                    placeholder="Ej: 40"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  />
+                </label>
+              </div>
               {!esUnidadKg && (
                 <>
                   <label className="block">
@@ -878,7 +926,7 @@ export default function Productos() {
                           {formatMoneda(precioVentaKgForm)}
                         </span>
                         <span className="text-xs text-emerald-700">
-                          Costo por kg + {formProducto.margenPorcentaje || MARGEN_DEFAULT}% de ganancia
+                          Costo por kg + {formProducto.margenKg || MARGEN_DEFAULT}% de ganancia
                         </span>
                       </div>
                     </>
@@ -894,8 +942,8 @@ export default function Productos() {
                 </span>
                 <span className="text-xs text-emerald-700">
                   {esUnidadKg
-                    ? 'Costo por kg + porcentaje de ganancia.'
-                    : 'Se calcula con precio de compra + porcentaje.'}
+                    ? `Costo por kg + ${formProducto.margenKg || MARGEN_DEFAULT}% de ganancia.`
+                    : `Costo unitario + ${formProducto.margenBolsa || MARGEN_DEFAULT}% de ganancia por ${etiquetaVentaUnidad(formProducto.unidad)}.`}
                 </span>
               </div>
               <label className="block">
@@ -995,16 +1043,28 @@ export default function Productos() {
                   </div>
                 </div>
                 <div className="rounded-2xl bg-emerald-50 border border-emerald-100 p-3">
-                  <div className="text-xs text-emerald-700">% ganancia</div>
+                  <div className="text-xs text-emerald-700">
+                    {p.unidad === 'kg' ? '% ganancia / kg' : `% ganancia / ${etiquetaVentaUnidad(p.unidad)}`}
+                  </div>
                   <div className="mt-1 font-bold text-emerald-800">
-                    {margenProducto(p)}%
+                    {formatearMargen(p.unidad === 'kg' ? p.margenKg : p.margenBolsa)}%
                   </div>
                 </div>
               </div>
-              {p.unidad !== 'kg' && p.precioKg > 0 && (
-                <div className="mt-3 rounded-2xl bg-slate-50 border border-slate-100 p-3">
-                  <div className="text-xs text-slate-500">Venta suelta por kg</div>
-                  <div className="mt-1 font-bold text-slate-800">{formatMoneda(p.precioKg)}/kg</div>
+              {p.unidad !== 'kg' && (
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="rounded-2xl bg-slate-50 border border-slate-100 p-3">
+                    <div className="text-xs text-slate-500">Venta suelta / kg</div>
+                    <div className="mt-1 font-bold text-slate-800">
+                      {p.precioKg > 0 ? `${formatMoneda(p.precioKg)}/kg` : '—'}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl bg-emerald-50 border border-emerald-100 p-3">
+                    <div className="text-xs text-emerald-700">% ganancia / kg suelto</div>
+                    <div className="mt-1 font-bold text-emerald-800">
+                      {formatearMargen(p.margenKg)}%
+                    </div>
+                  </div>
                 </div>
               )}
               {(p.proveedor || p.numeroProveedor || p.observacion) && (

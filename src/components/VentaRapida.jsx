@@ -7,9 +7,10 @@ import { useProductos } from '../context/ProductosContext';
 import { crearVenta } from '../services/supabaseData';
 import { usePagination } from '../hooks/usePagination';
 import {
-  extraerKgDelNombre,
-  calcularPrecioVentaKg,
-} from '../utils/preciosKg';
+  calcularPrecioVenta,
+  resolverMargenBolsa,
+  resolverPrecioKgVenta,
+} from '../utils/margenes';
 
 const IconoBuscar = () => (
   <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -62,31 +63,11 @@ function textoEquivalenciaGramos(kg) {
   return `${kgStr} kg (${gramos} g)`;
 }
 
-function resolverPrecioKg(producto, precioVenta, precioCompra) {
-  if (producto.unidad === 'kg') return precioVenta;
-  const kgPorUnidad = extraerKgDelNombre(producto.name);
-  const compra = Number(precioCompra) || Number(producto.precioCompra) || 0;
-  const venta = Number(precioVenta) || 0;
-  if (kgPorUnidad > 0 && compra > 0 && venta > 0) {
-    const margen = ((venta - compra) / compra) * 100;
-    return calcularPrecioVentaKg(compra, kgPorUnidad, margen > 0 ? margen : 30);
-  }
-  return Number(producto.precioKg) || 0;
-}
-
-const MARGEN_DEFAULT = 30;
-
-function calcularPrecioVenta(precioCompra, margenPorcentaje = MARGEN_DEFAULT) {
-  const compra = Number(precioCompra) || 0;
-  const margen = Number(margenPorcentaje) || MARGEN_DEFAULT;
-  if (compra <= 0) return 0;
-  return Math.round(compra * (1 + margen / 100));
-}
-
 function resolverPrecioVenta(stock, producto) {
   const precioCompra = Number(stock.precioCompra) || Number(producto.precioCompra) || 0;
   const precioVentaGuardado = Number(stock.precioVenta) || parsePrecioStr(producto.price);
-  return precioVentaGuardado || calcularPrecioVenta(precioCompra);
+  const margenBolsa = resolverMargenBolsa(producto, precioCompra, precioVentaGuardado);
+  return precioVentaGuardado || calcularPrecioVenta(precioCompra, margenBolsa);
 }
 
 export default function VentaRapida() {
@@ -132,7 +113,7 @@ export default function VentaRapida() {
       const disponible = Math.max(0, (Number(stock.cantidadComprada) || 0) - (Number(stock.cantidadVendida) || 0));
       const precioVenta = resolverPrecioVenta(stock, producto);
       const precioCompra = Number(stock.precioCompra) || Number(producto.precioCompra) || 0;
-      const precioKg = resolverPrecioKg(producto, precioVenta, precioCompra);
+      const precioKg = resolverPrecioKgVenta(producto, precioCompra, precioVenta);
       return {
         ...producto,
         disponible,
@@ -638,7 +619,7 @@ export default function VentaRapida() {
                   const pb = parsePrecioStr(p.price);
                   const pk = p.unidad === 'kg'
                     ? (Number(p.precioKg) || pb)
-                    : (Number(p.precioKg) || resolverPrecioKg(p, pb, p.precioCompra));
+                    : (Number(p.precioKg) || resolverPrecioKgVenta(p, p.precioCompra, pb));
                   const fardo = esFardo(p.stock);
                   return (
                     <li key={p.name}>
