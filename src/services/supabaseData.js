@@ -1,4 +1,5 @@
 import { supabase } from '../supabaseClient';
+import { extraerKgDelNombre } from '../utils/preciosKg';
 
 function requireSupabase() {
   if (!supabase) {
@@ -585,6 +586,219 @@ export async function crearPresupuesto(presupuesto) {
   }
 
   return { ...presupuesto, id: data.id };
+}
+
+function mapVentaLinea(row) {
+  return {
+    productoNombre: row.producto_nombre,
+    modoVenta: row.modo_venta,
+    cantidad: row.cantidad != null ? Number(row.cantidad) : null,
+    kg: row.kg != null ? Number(row.kg) : null,
+    subtotal: Number(row.subtotal) || 0,
+  };
+}
+
+function mapVenta(row) {
+  return {
+    id: row.id,
+    fecha: row.fecha || row.created_at,
+    cliente: row.cliente_nombre,
+    metodoPago: row.metodo_pago,
+    total: Number(row.total) || 0,
+    lineas: (row.venta_lineas || []).map(mapVentaLinea),
+  };
+}
+
+function claveMes(fechaIso) {
+  const d = new Date(fechaIso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function claveDia(fechaIso) {
+  const d = new Date(fechaIso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+const MESES_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+function labelMes(clave) {
+  const [anio, mes] = clave.split('-');
+  return `${MESES_ES[Number(mes) - 1]} ${anio.slice(2)}`;
+}
+
+function labelDia(clave) {
+  const [, mes, dia] = clave.split('-');
+  return `${dia}/${mes}`;
+}
+
+function esMismaFechaLocal(fechaIso, referencia = new Date()) {
+  const d = new Date(fechaIso);
+  return (
+    d.getFullYear() === referencia.getFullYear()
+    && d.getMonth() === referencia.getMonth()
+    && d.getDate() === referencia.getDate()
+  );
+}
+
+function calcularCostoLinea(linea, productosPorNombre) {
+  const nombre = linea.producto_nombre || linea.productoNombre;
+  const producto = productosPorNombre[nombre?.toLowerCase()];
+  const precioCompra = Number(producto?.precioCompra) || 0;
+  const modo = linea.modo_venta || linea.modoVenta || 'bolsa';
+  const subtotal = Number(linea.subtotal) || 0;
+
+  if (precioCompra <= 0) return 0;
+
+  if (modo === 'kilo' || linea.kg) {
+    const kg = Number(linea.kg) || 0;
+    const kgUnidad = extraerKgDelNombre(nombre) || 1;
+    const costoKg = kgUnidad > 0 ? precioCompra / kgUnidad : 0;
+    return kg * costoKg;
+  }
+
+  if (modo === 'pesos') {
+    return subtotal * 0.7;
+  }
+
+  const cant = Number(linea.cantidad) || 0;
+  return cant * precioCompra;
+}
+
+export async function listarVentas({ limit = 200 } = {}) {
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from('ventas')
+    .select('*, venta_lineas(*)')
+    .order('fecha', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data || []).map(mapVenta);
+}
+
+export async function obtenerResumenReportes() {
+  const [ventas, productos] = await Promise.all([
+    listarVentas({ limit: 500 }),
+    listarProductos(),
+  ]);
+
+  const productosPorNombre = {};
+  for (const producto of productos) {
+    productosPorNombre[producto.name.toLowerCase()] = producto;
+  }
+
+  let ventasTotales = 0;
+  let ventasHoy = 0;
+  let costoTotal = 0;
+  let costoHoy = 0;
+  let cantidadVentas = 0;
+  let cantidadVentasHoy = 0;
+
+  const porProducto = {};
+  const porMedio = {};
+  const conteoMedio = {};
+  const porMes = {};
+  const porDia = {};
+
+  for (const venta of ventas) {
+    const total = venta.total;
+    const esHoy = esMismaFechaLocal(venta.fecha);
+
+    ventasTotales += total;
+    cantidadVentas += 1;
+
+    if (esHoy) {
+      ventasHoy += total;
+      cantidadVentasHoy += 1;
+    }
+
+    const metodo = venta.metodoPago || 'efectivo';
+    porMedio[metodo] = (porMedio[metodo] || 0) + total;
+    conteoMedio[metodo] = (conteoMedio[metodo] || 0) + 1;
+
+    const mesKey = claveMes(venta.fecha);
+    porMes[mesKey] = (porMes[mesKey] || 0) + total;
+
+    const diaKey = claveDia(venta.fecha);
+    porDia[diaKey] = (porDia[diaKey] || 0) + total;
+
+    for (const linea of venta.lineas) {
+      const costo = calcularCostoLinea(
+        {
+          producto_nombre: linea.productoNombre,
+          modo_venta: linea.modoVenta,
+          cantidad: linea.cantidad,
+          kg: linea.kg,
+          subtotal: linea.subtotal,
+        },
+        productosPorNombre,
+      );
+
+      costoTotal += costo;
+      if (esHoy) costoHoy += costo;
+
+      const nombre = linea.productoNombre;
+      if (!porProducto[nombre]) {
+        porProducto[nombre] = { nombre, ventas: 0, unidades: 0 };
+      }
+      porProducto[nombre].ventas += linea.subtotal;
+      porProducto[nombre].unidades += linea.kg ?? linea.cantidad ?? 1;
+    }
+  }
+
+  const margenBruto = ventasTotales - costoTotal;
+  const gananciaHoy = ventasHoy - costoHoy;
+  const margenPorcentaje = ventasTotales > 0
+    ? Math.round((margenBruto / ventasTotales) * 100)
+    : 0;
+
+  const labelsMedio = {
+    efectivo: 'Efectivo',
+    tarjeta: 'Tarjeta',
+    transfer: 'Transferencia',
+  };
+
+  const ventasPorProducto = Object.values(porProducto).sort((a, b) => b.ventas - a.ventas);
+  const ventasPorMedioPago = Object.entries(porMedio)
+    .filter(([, monto]) => monto > 0)
+    .map(([metodo, monto]) => ({
+      metodo,
+      label: labelsMedio[metodo] || metodo,
+      total: monto,
+      cantidad: conteoMedio[metodo] || 0,
+    }))
+    .sort((a, b) => b.total - a.total);
+
+  const ventasMensuales = Object.entries(porMes)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(-12)
+    .map(([clave, monto]) => ({ clave, label: labelMes(clave), ventas: monto }));
+
+  const ventasDiarias = [];
+  for (let i = 13; i >= 0; i -= 1) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const key = claveDia(d.toISOString());
+    ventasDiarias.push({
+      clave: key,
+      label: labelDia(key),
+      ventas: porDia[key] || 0,
+    });
+  }
+
+  return {
+    ventasTotales,
+    ventasHoy,
+    gananciaHoy,
+    margenBruto,
+    margenPorcentaje,
+    cantidadVentas,
+    cantidadVentasHoy,
+    ventasPorProducto,
+    ventasPorMedioPago,
+    ventasMensuales,
+    ventasDiarias,
+    ultimasVentas: ventas.slice(0, 15),
+  };
 }
 
 export async function crearVenta(venta) {
