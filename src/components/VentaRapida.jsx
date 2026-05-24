@@ -51,6 +51,18 @@ function formatDisponible(cantidad, unidad = 'unidades') {
   return `${n.toLocaleString('es-AR', { maximumFractionDigits: 3 })} ${unidad}`;
 }
 
+function textoEquivalenciaGramos(kg) {
+  if (!Number.isFinite(kg) || kg <= 0 || kg >= 1) return null;
+  const gramos = Math.round(kg * 1000);
+  const kgStr = kg.toLocaleString('es-AR', { maximumFractionDigits: 3 });
+  return `${kgStr} kg (${gramos} g)`;
+}
+
+function resolverPrecioKg(producto, precioVenta) {
+  if (producto.unidad === 'kg') return precioVenta;
+  return Number(producto.precioKg) || 0;
+}
+
 const MARGEN_DEFAULT = 30;
 
 function calcularPrecioVenta(precioCompra, margenPorcentaje = MARGEN_DEFAULT) {
@@ -108,11 +120,12 @@ export default function VentaRapida() {
       const stock = porProducto[producto.name] || {};
       const disponible = Math.max(0, (Number(stock.cantidadComprada) || 0) - (Number(stock.cantidadVendida) || 0));
       const precioVenta = resolverPrecioVenta(stock, producto);
+      const precioKg = resolverPrecioKg(producto, precioVenta);
       return {
         ...producto,
         disponible,
         price: precioVenta,
-        precioKg: producto.unidad === 'kg' ? precioVenta : (Number(producto.precioKg) || 0),
+        precioKg,
       };
     });
   }, [productosFiltrados, porProducto]);
@@ -131,7 +144,9 @@ export default function VentaRapida() {
   };
 
   const precioBolsa = modalProducto ? parsePrecioStr(modalProducto.price) : 0;
-  const precioKg = modalProducto ? Number(modalProducto.precioKg) || 0 : 0;
+  const precioKg = modalProducto
+    ? (Number(modalProducto.precioKg) || parsePrecioStr(modalProducto.price) || 0)
+    : 0;
   const unidadProducto = modalProducto?.unidad || 'bolsas';
   const ventaPorKg = unidadProducto === 'kg';
   const etiquetaUnidad = unidadProducto === 'fardos' ? 'fardo' : unidadProducto === 'unidades' ? 'unidad' : 'bolsa';
@@ -189,7 +204,7 @@ export default function VentaRapida() {
 
     if (modalModo === 'kilo') {
       const kg = parseFloat(String(kgInput).replace(',', '.')) || 0;
-      if (kg <= 0 || precioKg <= 0) return;
+      if (kg < 0.001 || precioKg <= 0) return;
       if (disponibleModal > 0 && kg > disponibleModal) return;
       const subtotal = redondearMonto(kg * precioKg);
       setCarrito((prev) => [
@@ -337,7 +352,7 @@ export default function VentaRapida() {
   };
 
   const kgNum = parseFloat(String(kgInput).replace(',', '.')) || 0;
-  const cobrarKilo = precioKg > 0 && kgNum > 0 ? redondearMonto(kgNum * precioKg) : 0;
+  const cobrarKilo = precioKg > 0 && kgNum >= 0.001 ? redondearMonto(kgNum * precioKg) : 0;
   const pesosNum =
     parseFloat(String(pesosInput).replace(/\./g, '').replace(',', '.')) ||
     parseFloat(String(pesosInput).replace(',', '.')) ||
@@ -345,8 +360,9 @@ export default function VentaRapida() {
   const kgPorPesos = precioKg > 0 && pesosNum > 0 ? pesosNum / precioKg : 0;
 
   const puedeConfirmarBolsa = modalModo === 'bolsa' && cantBolsas >= 1 && (disponibleModal <= 0 || cantBolsas <= disponibleModal);
-  const puedeConfirmarKilo = modalModo === 'kilo' && kgNum > 0 && precioKg > 0 && (disponibleModal <= 0 || kgNum <= disponibleModal);
+  const puedeConfirmarKilo = modalModo === 'kilo' && kgNum >= 0.001 && precioKg > 0 && (disponibleModal <= 0 || kgNum <= disponibleModal);
   const puedeConfirmarPesos = modalModo === 'pesos' && pesosNum > 0 && precioKg > 0 && (disponibleModal <= 0 || kgPorPesos <= disponibleModal);
+  const equivalenciaGramos = textoEquivalenciaGramos(kgNum);
 
   const modalContenido =
     modalProducto &&
@@ -492,14 +508,19 @@ export default function VentaRapida() {
                   inputMode="decimal"
                   value={kgInput}
                   onChange={(e) => setKgInput(e.target.value)}
-                  placeholder="Ej: 0,5 o 1,25"
+                  placeholder="Ej: 0,1 (100 g) o 1,25"
                   className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-900 focus:ring-2 focus:ring-emerald-500/30"
                 />
               </label>
               <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-emerald-900">
                 <span className="text-sm font-medium">Cobrar</span>
-                <div className="text-xl font-bold">{kgNum > 0 ? formatMoney(cobrarKilo) : '—'}</div>
+                <div className="text-xl font-bold">{kgNum >= 0.001 ? formatMoney(cobrarKilo) : '—'}</div>
                 <p className="text-xs mt-1 opacity-90">{formatMoney(precioKg)} por kg</p>
+                {equivalenciaGramos && (
+                  <p className="text-xs mt-1 opacity-90">
+                    {equivalenciaGramos} → {formatMoney(cobrarKilo)}
+                  </p>
+                )}
                 <p className="text-xs mt-1 opacity-90">
                   Quedaría: {formatKgHuman(Math.max(0, disponibleModal - kgNum))}
                 </p>
@@ -603,7 +624,7 @@ export default function VentaRapida() {
               <ul className="p-2 space-y-1">
                 {listaPaginacion.paginatedItems.map((p) => {
                   const pb = parsePrecioStr(p.price);
-                  const pk = Number(p.precioKg) || 0;
+                  const pk = p.unidad === 'kg' ? (Number(p.precioKg) || pb) : (Number(p.precioKg) || 0);
                   const fardo = esFardo(p.stock);
                   return (
                     <li key={p.name}>

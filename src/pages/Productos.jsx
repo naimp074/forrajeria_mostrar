@@ -115,15 +115,26 @@ export default function Productos() {
       const disponible = stockDisponible(stock);
       const precioCompra = precioCompraStock || Number(producto.precioCompra) || 0;
       const precioVentaGuardado = precioVentaStock || Number(producto.price) || 0;
+      const precioVenta = precioVentaGuardado || calcularPrecioVenta(precioCompra, MARGEN_DEFAULT);
+      const precioKg = producto.unidad === 'kg'
+        ? precioVenta
+        : Number(producto.precioKg) || 0;
       return {
         ...producto,
         precioCompra,
-        price: precioVentaGuardado || calcularPrecioVenta(precioCompra, MARGEN_DEFAULT),
+        price: precioVenta,
+        precioKg,
         cantidadDisponible: disponible,
         stock: formatCantidad(disponible, producto.unidad),
       };
     });
   }, [productos, porProducto]);
+
+  const esUnidadKg = formProducto.unidad === 'kg';
+  const costoFormulario = editandoProducto
+    ? parseNumero(formProducto.precioCompra)
+    : calcularCostoUnitario(formProducto.precioCompra, formProducto.cantidad);
+  const precioVentaFormulario = calcularPrecioVenta(costoFormulario, formProducto.margenPorcentaje);
 
   useEffect(() => {
     if (sincronizandoPreciosRef.current || productos.length === 0) return;
@@ -304,7 +315,16 @@ export default function Productos() {
         ? parseNumero(formProducto.precioCompra)
         : calcularCostoUnitario(formProducto.precioCompra, formProducto.cantidad);
       const precioVentaCalculado = calcularPrecioVenta(precioCompra, formProducto.margenPorcentaje);
-      const payload = { ...formProducto, nombre, precioCompra, precioUnidad: precioVentaCalculado };
+      const esKg = formProducto.unidad === 'kg';
+      const precioKgFinal = esKg ? precioVentaCalculado : parseNumero(formProducto.precioKg);
+      const payload = {
+        ...formProducto,
+        nombre,
+        precioCompra,
+        precioUnidad: precioVentaCalculado,
+        precioKg: precioKgFinal,
+        unidad: formProducto.unidad,
+      };
       const precioVenta = precioVentaCalculado;
       const proveedorEditado = formProducto.proveedor.trim();
       const numeroProveedorEditado = formProducto.numeroProveedor.trim();
@@ -752,7 +772,9 @@ export default function Productos() {
               </label>
               <label className="block">
                 <span className="block text-sm font-medium text-slate-600 mb-1">
-                  {editandoProducto ? 'Costo unitario ($)' : 'Precio compra total ($)'}
+                  {esUnidadKg
+                    ? (editandoProducto ? 'Costo por kg ($)' : 'Precio compra total ($)')
+                    : (editandoProducto ? 'Costo unitario ($)' : 'Precio compra total ($)')}
                 </span>
                 <input
                   type="number"
@@ -760,21 +782,23 @@ export default function Productos() {
                   step="0.01"
                   value={formProducto.precioCompra}
                   onChange={(e) => setFormProducto((prev) => ({ ...prev, precioCompra: e.target.value }))}
-                  placeholder="Ej: 1500"
+                  placeholder={esUnidadKg ? 'Ej: 10000' : 'Ej: 1500'}
                   className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                 />
               </label>
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3">
                 <span className="block text-sm font-medium text-emerald-800">
-                  {editandoProducto ? 'Costo unitario' : 'Costo unitario calculado'}
+                  {esUnidadKg
+                    ? (editandoProducto ? 'Costo por kg' : 'Costo por kg calculado')
+                    : (editandoProducto ? 'Costo unitario' : 'Costo unitario calculado')}
                 </span>
                 <span className="mt-1 block text-lg font-bold text-emerald-900">
-                  {formatMoneda(editandoProducto
-                    ? parseNumero(formProducto.precioCompra)
-                    : calcularCostoUnitario(formProducto.precioCompra, formProducto.cantidad))}
+                  {formatMoneda(costoFormulario)}
                 </span>
                 <span className="text-xs text-emerald-700">
-                  {editandoProducto ? 'Se usa para recalcular el precio de venta.' : 'Precio compra total dividido por cantidad.'}
+                  {esUnidadKg
+                    ? 'Se usa para calcular el precio de venta al peso.'
+                    : (editandoProducto ? 'Se usa para recalcular el precio de venta.' : 'Precio compra total dividido por cantidad.')}
                 </span>
               </div>
               <label className="block">
@@ -789,29 +813,30 @@ export default function Productos() {
                   className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                 />
               </label>
-              <label className="block">
-                <span className="block text-sm font-medium text-slate-600 mb-1">Precio por kg</span>
-                <input
-                  type="number"
-                  min="0"
-                  value={formProducto.precioKg}
-                  onChange={(e) => setFormProducto((prev) => ({ ...prev, precioKg: e.target.value }))}
-                  placeholder="Ej: 120"
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                />
-              </label>
+              {!esUnidadKg && (
+                <label className="block">
+                  <span className="block text-sm font-medium text-slate-600 mb-1">Precio por kg (venta suelta)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={formProducto.precioKg}
+                    onChange={(e) => setFormProducto((prev) => ({ ...prev, precioKg: e.target.value }))}
+                    placeholder="Ej: 120"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  />
+                </label>
+              )}
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3">
-                <span className="block text-sm font-medium text-emerald-800">Precio de venta calculado</span>
+                <span className="block text-sm font-medium text-emerald-800">
+                  {esUnidadKg ? 'Precio de venta por kg' : 'Precio de venta calculado'}
+                </span>
                 <span className="mt-1 block text-xl font-bold text-emerald-900">
-                  {formatMoneda(calcularPrecioVenta(
-                    editandoProducto
-                      ? formProducto.precioCompra
-                      : calcularCostoUnitario(formProducto.precioCompra, formProducto.cantidad),
-                    formProducto.margenPorcentaje
-                  ))}
+                  {formatMoneda(precioVentaFormulario)}
                 </span>
                 <span className="text-xs text-emerald-700">
-                  Se calcula con precio de compra + porcentaje.
+                  {esUnidadKg
+                    ? 'Costo por kg + porcentaje de ganancia.'
+                    : 'Se calcula con precio de compra + porcentaje.'}
                 </span>
               </div>
               <label className="block">
@@ -894,12 +919,18 @@ export default function Productos() {
                 ) : null}
               </div>
               <div className="mt-4 flex items-center justify-between">
-                <span className="text-sm text-slate-500">Precio venta</span>
-                <span className="text-xl font-bold">{formatMoneda(p.price)}</span>
+                <span className="text-sm text-slate-500">
+                  {p.unidad === 'kg' ? 'Precio venta / kg' : 'Precio venta'}
+                </span>
+                <span className="text-xl font-bold">
+                  {formatMoneda(p.price)}{p.unidad === 'kg' ? '/kg' : ''}
+                </span>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <div className="rounded-2xl bg-slate-50 border border-slate-100 p-3">
-                  <div className="text-xs text-slate-500">Precio compra</div>
+                  <div className="text-xs text-slate-500">
+                    {p.unidad === 'kg' ? 'Costo / kg' : 'Precio compra'}
+                  </div>
                   <div className="mt-1 font-bold text-slate-800">
                     {p.precioCompra ? formatMoneda(p.precioCompra) : '—'}
                   </div>
