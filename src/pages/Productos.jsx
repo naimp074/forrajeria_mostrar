@@ -73,6 +73,29 @@ function normalizarBusqueda(valor) {
     .replace(/[\u0300-\u036f]/g, '');
 }
 
+function mensajeErrorGuardadoProducto(err) {
+  const mensaje = String(err?.message || err?.details || '');
+  const lower = mensaje.toLowerCase();
+
+  if (lower.includes('margen_bolsa') || lower.includes('margen_kg')) {
+    return 'Falta actualizar Supabase: ejecutá el SQL supabase/add_margenes_producto.sql para guardar los porcentajes de ganancia.';
+  }
+  if (
+    lower.includes('proveedor_nombre')
+    || lower.includes('proveedor_telefono')
+    || lower.includes('observacion')
+  ) {
+    return 'Falta actualizar Supabase: ejecutá el SQL supabase/add_producto_detalles.sql para poder guardar proveedor, número y observación.';
+  }
+  if (err?.code === '23505' || lower.includes('duplicate') || lower.includes('unique')) {
+    return 'Ya existe otro producto con ese nombre. Usá un nombre diferente.';
+  }
+  if (mensaje) {
+    return `No se pudo guardar el producto: ${mensaje}`;
+  }
+  return 'No se pudo guardar el producto. Revisá tu conexión e intentá de nuevo.';
+}
+
 function avisarProveedoresActualizados() {
   window.dispatchEvent(new CustomEvent('forrajeria:proveedores-actualizados'));
 }
@@ -446,16 +469,7 @@ export default function Productos() {
       cancelarEdicion();
     } catch (err) {
       console.warn('No se pudo guardar el producto.', err);
-      const mensaje = String(err?.message || '');
-      if (
-        mensaje.includes('proveedor_nombre') ||
-        mensaje.includes('proveedor_telefono') ||
-        mensaje.includes('observacion')
-      ) {
-        setProductoError('Falta actualizar Supabase: ejecutá el SQL supabase/add_producto_detalles.sql para poder guardar proveedor, número y observación.');
-      } else {
-        setProductoError('No se pudo guardar el producto. Revisá que no exista otro con el mismo nombre.');
-      }
+      setProductoError(mensajeErrorGuardadoProducto(err));
     } finally {
       setGuardandoProducto(false);
     }

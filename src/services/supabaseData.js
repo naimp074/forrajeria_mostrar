@@ -46,6 +46,51 @@ function mapPresupuesto(row) {
   };
 }
 
+function buildProductoDbRow(producto, { includeMargenes = true } = {}) {
+  const row = {
+    nombre: producto.nombre,
+    precio_unidad: Number(producto.precioUnidad) || 0,
+    precio_kg: Number(producto.precioKg) || 0,
+    precio_compra_ref: Number(producto.precioCompra) || 0,
+    unidad_default: producto.unidad || 'unidades',
+    proveedor_nombre: producto.proveedor || null,
+    proveedor_telefono: producto.numeroProveedor || null,
+    observacion: producto.observacion || null,
+    favorito: Boolean(producto.favorito),
+    updated_at: new Date().toISOString(),
+  };
+
+  if (includeMargenes) {
+    row.margen_bolsa = producto.margenBolsa != null ? Number(producto.margenBolsa) : null;
+    row.margen_kg = producto.margenKg != null ? Number(producto.margenKg) : null;
+  }
+
+  return row;
+}
+
+function esErrorColumnasMargen(error) {
+  const mensaje = String(error?.message || error?.details || '').toLowerCase();
+  return mensaje.includes('margen_bolsa')
+    || mensaje.includes('margen_kg')
+    || (mensaje.includes('margen') && mensaje.includes('column'));
+}
+
+async function persistirProductoDb(client, { id, producto, esInserto }) {
+  const guardar = (includeMargenes) => {
+    const row = buildProductoDbRow(producto, { includeMargenes });
+    if (esInserto) {
+      return client.from('productos').insert(row).select('*').single();
+    }
+    return client.from('productos').update(row).eq('id', id).select('*').single();
+  };
+
+  let result = await guardar(true);
+  if (result.error && esErrorColumnasMargen(result.error)) {
+    result = await guardar(false);
+  }
+  return result;
+}
+
 function mapProducto(row) {
   const unidad = row.unidad_default || 'unidades';
   const stockLabel = unidad === 'fardos' ? '0 fardos' : unidad === 'bolsas' ? '0 bolsas' : `0 ${unidad}`;
@@ -240,23 +285,7 @@ export async function listarProductos() {
 
 export async function crearProducto(producto) {
   const client = requireSupabase();
-  const { data, error } = await client
-    .from('productos')
-    .insert({
-      nombre: producto.nombre,
-      precio_unidad: Number(producto.precioUnidad) || 0,
-      precio_kg: Number(producto.precioKg) || 0,
-      precio_compra_ref: Number(producto.precioCompra) || 0,
-      margen_bolsa: producto.margenBolsa != null ? Number(producto.margenBolsa) : null,
-      margen_kg: producto.margenKg != null ? Number(producto.margenKg) : null,
-      unidad_default: producto.unidad || 'unidades',
-      proveedor_nombre: producto.proveedor || null,
-      proveedor_telefono: producto.numeroProveedor || null,
-      observacion: producto.observacion || null,
-      favorito: Boolean(producto.favorito),
-    })
-    .select('*')
-    .single();
+  const { data, error } = await persistirProductoDb(client, { producto, esInserto: true });
   if (error) throw error;
 
   const { error: saldoError } = await client
@@ -276,24 +305,7 @@ export async function crearProducto(producto) {
 
 export async function actualizarProducto(id, producto) {
   const client = requireSupabase();
-  const { data, error } = await client
-    .from('productos')
-    .update({
-      nombre: producto.nombre,
-      precio_unidad: Number(producto.precioUnidad) || 0,
-      precio_kg: Number(producto.precioKg) || 0,
-      precio_compra_ref: Number(producto.precioCompra) || 0,
-      margen_bolsa: producto.margenBolsa != null ? Number(producto.margenBolsa) : null,
-      margen_kg: producto.margenKg != null ? Number(producto.margenKg) : null,
-      unidad_default: producto.unidad || 'unidades',
-      proveedor_nombre: producto.proveedor || null,
-      proveedor_telefono: producto.numeroProveedor || null,
-      observacion: producto.observacion || null,
-      favorito: Boolean(producto.favorito),
-    })
-    .eq('id', id)
-    .select('*')
-    .single();
+  const { data, error } = await persistirProductoDb(client, { id, producto, esInserto: false });
   if (error) throw error;
 
   const { error: saldoError } = await client
