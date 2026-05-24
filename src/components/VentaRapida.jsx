@@ -6,6 +6,10 @@ import { useStock } from '../context/StockContext';
 import { useProductos } from '../context/ProductosContext';
 import { crearVenta } from '../services/supabaseData';
 import { usePagination } from '../hooks/usePagination';
+import {
+  extraerKgDelNombre,
+  calcularPrecioVentaKg,
+} from '../utils/preciosKg';
 
 const IconoBuscar = () => (
   <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -58,8 +62,15 @@ function textoEquivalenciaGramos(kg) {
   return `${kgStr} kg (${gramos} g)`;
 }
 
-function resolverPrecioKg(producto, precioVenta) {
+function resolverPrecioKg(producto, precioVenta, precioCompra) {
   if (producto.unidad === 'kg') return precioVenta;
+  const kgPorUnidad = extraerKgDelNombre(producto.name);
+  const compra = Number(precioCompra) || Number(producto.precioCompra) || 0;
+  const venta = Number(precioVenta) || 0;
+  if (kgPorUnidad > 0 && compra > 0 && venta > 0) {
+    const margen = ((venta - compra) / compra) * 100;
+    return calcularPrecioVentaKg(compra, kgPorUnidad, margen > 0 ? margen : 30);
+  }
   return Number(producto.precioKg) || 0;
 }
 
@@ -120,7 +131,8 @@ export default function VentaRapida() {
       const stock = porProducto[producto.name] || {};
       const disponible = Math.max(0, (Number(stock.cantidadComprada) || 0) - (Number(stock.cantidadVendida) || 0));
       const precioVenta = resolverPrecioVenta(stock, producto);
-      const precioKg = resolverPrecioKg(producto, precioVenta);
+      const precioCompra = Number(stock.precioCompra) || Number(producto.precioCompra) || 0;
+      const precioKg = resolverPrecioKg(producto, precioVenta, precioCompra);
       return {
         ...producto,
         disponible,
@@ -624,7 +636,9 @@ export default function VentaRapida() {
               <ul className="p-2 space-y-1">
                 {listaPaginacion.paginatedItems.map((p) => {
                   const pb = parsePrecioStr(p.price);
-                  const pk = p.unidad === 'kg' ? (Number(p.precioKg) || pb) : (Number(p.precioKg) || 0);
+                  const pk = p.unidad === 'kg'
+                    ? (Number(p.precioKg) || pb)
+                    : (Number(p.precioKg) || resolverPrecioKg(p, pb, p.precioCompra));
                   const fardo = esFardo(p.stock);
                   return (
                     <li key={p.name}>

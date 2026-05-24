@@ -4,6 +4,11 @@ import { useStock } from '../context/StockContext';
 import { registrarIngresoStock } from '../services/supabaseData';
 import { usePagination } from '../hooks/usePagination';
 import Paginacion from '../components/Paginacion';
+import {
+  extraerKgDelNombre,
+  calcularPrecioCompraKg,
+  calcularPrecioVentaKg,
+} from '../utils/preciosKg';
 
 const MARGEN_DEFAULT = '30';
 
@@ -90,6 +95,7 @@ export default function Productos() {
     precioUnidad: '',
     margenPorcentaje: MARGEN_DEFAULT,
     precioKg: '',
+    kgPorUnidad: '',
     precioCompra: '',
     cantidad: '',
     unidad: 'bolsas',
@@ -116,9 +122,13 @@ export default function Productos() {
       const precioCompra = precioCompraStock || Number(producto.precioCompra) || 0;
       const precioVentaGuardado = precioVentaStock || Number(producto.price) || 0;
       const precioVenta = precioVentaGuardado || calcularPrecioVenta(precioCompra, MARGEN_DEFAULT);
+      const margen = margenProducto({ ...producto, precioCompra, price: precioVenta });
+      const kgPorUnidad = extraerKgDelNombre(producto.name);
       const precioKg = producto.unidad === 'kg'
         ? precioVenta
-        : Number(producto.precioKg) || 0;
+        : kgPorUnidad > 0
+          ? calcularPrecioVentaKg(precioCompra, kgPorUnidad, margen)
+          : Number(producto.precioKg) || 0;
       return {
         ...producto,
         precioCompra,
@@ -135,6 +145,11 @@ export default function Productos() {
     ? parseNumero(formProducto.precioCompra)
     : calcularCostoUnitario(formProducto.precioCompra, formProducto.cantidad);
   const precioVentaFormulario = calcularPrecioVenta(costoFormulario, formProducto.margenPorcentaje);
+  const kgPorUnidadForm = parseNumero(formProducto.kgPorUnidad) || extraerKgDelNombre(formProducto.nombre);
+  const precioVentaKgForm = !esUnidadKg && kgPorUnidadForm > 0
+    ? calcularPrecioVentaKg(costoFormulario, kgPorUnidadForm, formProducto.margenPorcentaje)
+    : 0;
+  const costoKgForm = kgPorUnidadForm > 0 ? calcularPrecioCompraKg(costoFormulario, kgPorUnidadForm) : 0;
 
   useEffect(() => {
     if (sincronizandoPreciosRef.current || productos.length === 0) return;
@@ -246,6 +261,7 @@ export default function Productos() {
       precioUnidad: String(producto.price ?? ''),
       margenPorcentaje: margenProducto(producto),
       precioKg: String(producto.precioKg ?? ''),
+      kgPorUnidad: String(extraerKgDelNombre(producto.name) || ''),
       precioCompra: String(producto.precioCompra ?? ''),
       cantidad: String(producto.cantidadDisponible ?? stockDisponible(porProducto[producto.name]) ?? ''),
       unidad: producto.unidad || 'bolsas',
@@ -266,6 +282,7 @@ export default function Productos() {
       precioUnidad: '',
       margenPorcentaje: MARGEN_DEFAULT,
       precioKg: '',
+      kgPorUnidad: '',
       precioCompra: '',
       cantidad: '',
       unidad: 'bolsas',
@@ -284,6 +301,7 @@ export default function Productos() {
       precioUnidad: '',
       margenPorcentaje: MARGEN_DEFAULT,
       precioKg: '',
+      kgPorUnidad: '',
       precioCompra: '',
       cantidad: '',
       unidad: 'bolsas',
@@ -316,7 +334,12 @@ export default function Productos() {
         : calcularCostoUnitario(formProducto.precioCompra, formProducto.cantidad);
       const precioVentaCalculado = calcularPrecioVenta(precioCompra, formProducto.margenPorcentaje);
       const esKg = formProducto.unidad === 'kg';
-      const precioKgFinal = esKg ? precioVentaCalculado : parseNumero(formProducto.precioKg);
+      const kgPorUnidad = parseNumero(formProducto.kgPorUnidad) || extraerKgDelNombre(nombre);
+      const precioKgFinal = esKg
+        ? precioVentaCalculado
+        : kgPorUnidad > 0
+          ? calcularPrecioVentaKg(precioCompra, kgPorUnidad, formProducto.margenPorcentaje)
+          : parseNumero(formProducto.precioKg);
       const payload = {
         ...formProducto,
         nombre,
@@ -735,7 +758,17 @@ export default function Productos() {
                 <input
                   type="text"
                   value={formProducto.nombre}
-                  onChange={(e) => setFormProducto((prev) => ({ ...prev, nombre: e.target.value }))}
+                  onChange={(e) => {
+                    const nombre = e.target.value;
+                    setFormProducto((prev) => {
+                      const kgDetectado = extraerKgDelNombre(nombre);
+                      return {
+                        ...prev,
+                        nombre,
+                        kgPorUnidad: kgDetectado > 0 ? String(kgDetectado) : prev.kgPorUnidad,
+                      };
+                    });
+                  }}
                   placeholder="Nombre del producto (ej: Heno pelletizado)"
                   className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                   required
@@ -814,17 +847,43 @@ export default function Productos() {
                 />
               </label>
               {!esUnidadKg && (
-                <label className="block">
-                  <span className="block text-sm font-medium text-slate-600 mb-1">Precio por kg (venta suelta)</span>
-                  <input
-                    type="number"
-                    min="0"
-                    value={formProducto.precioKg}
-                    onChange={(e) => setFormProducto((prev) => ({ ...prev, precioKg: e.target.value }))}
-                    placeholder="Ej: 120"
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                  />
-                </label>
+                <>
+                  <label className="block">
+                    <span className="block text-sm font-medium text-slate-600 mb-1">Kg por unidad</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.001"
+                      inputMode="decimal"
+                      value={formProducto.kgPorUnidad}
+                      onChange={(e) => setFormProducto((prev) => ({ ...prev, kgPorUnidad: e.target.value }))}
+                      placeholder="Ej: 20 (se detecta del nombre si dice x 20 kg)"
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                    />
+                  </label>
+                  {kgPorUnidadForm > 0 && (
+                    <>
+                      <div className="rounded-xl border border-slate-200 bg-white px-3 py-3">
+                        <span className="block text-sm font-medium text-slate-600">Costo por kg</span>
+                        <span className="mt-1 block text-lg font-bold text-slate-800">
+                          {formatMoneda(costoKgForm)}
+                        </span>
+                        <span className="text-xs text-slate-500">
+                          Costo unitario ÷ {kgPorUnidadForm} kg
+                        </span>
+                      </div>
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3">
+                        <span className="block text-sm font-medium text-emerald-800">Precio venta por kg (suelto)</span>
+                        <span className="mt-1 block text-xl font-bold text-emerald-900">
+                          {formatMoneda(precioVentaKgForm)}
+                        </span>
+                        <span className="text-xs text-emerald-700">
+                          Costo por kg + {formProducto.margenPorcentaje || MARGEN_DEFAULT}% de ganancia
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </>
               )}
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3">
                 <span className="block text-sm font-medium text-emerald-800">
@@ -942,6 +1001,12 @@ export default function Productos() {
                   </div>
                 </div>
               </div>
+              {p.unidad !== 'kg' && p.precioKg > 0 && (
+                <div className="mt-3 rounded-2xl bg-slate-50 border border-slate-100 p-3">
+                  <div className="text-xs text-slate-500">Venta suelta por kg</div>
+                  <div className="mt-1 font-bold text-slate-800">{formatMoneda(p.precioKg)}/kg</div>
+                </div>
+              )}
               {(p.proveedor || p.numeroProveedor || p.observacion) && (
                 <div className="mt-4 rounded-2xl bg-slate-50 border border-slate-100 p-3 text-sm text-slate-600 space-y-1">
                   {p.proveedor && (
