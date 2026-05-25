@@ -146,7 +146,7 @@ export default function VentaRapida() {
   const etiquetaUnidad = unidadProducto === 'fardos' ? 'fardo' : unidadProducto === 'unidades' ? 'unidad' : 'bolsa';
   const etiquetaUnidadPlural = unidadProducto === 'fardos' ? 'fardos' : unidadProducto === 'unidades' ? 'unidades' : 'bolsas';
   const disponibleModal = Number(modalProducto?.disponible) || 0;
-  const mostrarVentaPorPeso = ventaPorKg || precioKg > 0;
+  const mostrarVentaPorPeso = ventaPorKg || (precioKg > 0 && unidadProducto !== 'unidades');
 
   const confirmarAlCarrito = () => {
     if (!modalProducto || !modalModo) return;
@@ -382,7 +382,7 @@ export default function VentaRapida() {
               <p className="text-xs sm:text-sm text-slate-500 mt-1">
                 {ventaPorKg
                   ? `${formatMoney(precioKg)} / kg`
-                  : `${formatMoney(precioBolsa)} / ${etiquetaUnidad}${precioKg > 0 ? ` · ${formatMoney(precioKg)}/kg suelto` : ''}`}
+                  : `${formatMoney(precioBolsa)} / ${etiquetaUnidad}${precioKg > 0 && unidadProducto !== 'unidades' ? ` · ${formatMoney(precioKg)}/kg suelto` : ''}`}
               </p>
               <p className="text-xs text-slate-500 mt-1">
                 Disponible: {formatDisponible(disponibleModal, unidadProducto)}
@@ -620,7 +620,9 @@ export default function VentaRapida() {
                   const pb = parsePrecioStr(p.price);
                   const pk = p.unidad === 'kg'
                     ? (Number(p.precioKg) || pb)
-                    : (Number(p.precioKg) || resolverPrecioKgVenta(p, p.precioCompra, pb));
+                    : p.unidad === 'unidades'
+                      ? 0
+                      : (Number(p.precioKg) || resolverPrecioKgVenta(p, p.precioCompra, pb));
                   const fardo = esFardo(p.stock);
                   return (
                     <li key={p.name}>
@@ -637,7 +639,7 @@ export default function VentaRapida() {
                           <div className="text-xs text-slate-400 mt-0.5">
                             {p.unidad === 'kg'
                               ? `${formatMoney(pk)}/kg`
-                              : `${formatMoney(pb)}/${p.unidad === 'unidades' ? 'unidad' : fardo ? 'fardo' : 'bolsa'}${pk > 0 ? ` · ${formatMoney(pk)}/kg` : ''}`}
+                              : `${formatMoney(pb)}/${p.unidad === 'unidades' ? 'unidad' : fardo ? 'fardo' : 'bolsa'}${pk > 0 && p.unidad !== 'unidades' ? ` · ${formatMoney(pk)}/kg` : ''}`}
                           </div>
                         </div>
                         <div className="text-right shrink-0">

@@ -163,7 +163,10 @@ export default function Productos() {
   }, [productos, porProducto]);
 
   const esUnidadKg = formProducto.unidad === 'kg';
-  const costoFormulario = (editandoProducto || esUnidadKg)
+  const esUnidadPieza = formProducto.unidad === 'unidades';
+  const soportaVentaPorKg = !esUnidadKg && !esUnidadPieza;
+  const costoDirecto = editandoProducto || esUnidadKg || esUnidadPieza;
+  const costoFormulario = costoDirecto
     ? parseNumero(formProducto.precioCompra)
     : calcularCostoUnitario(formProducto.precioCompra, formProducto.cantidad);
   const margenBolsaForm = parseMargenFormulario(formProducto.margenBolsa);
@@ -172,7 +175,7 @@ export default function Productos() {
     ? calcularPrecioVenta(costoFormulario, margenKgForm)
     : calcularPrecioVenta(costoFormulario, margenBolsaForm);
   const kgPorUnidadForm = parseNumero(formProducto.kgPorUnidad) || extraerKgDelNombre(formProducto.nombre);
-  const precioVentaKgForm = !esUnidadKg && kgPorUnidadForm > 0
+  const precioVentaKgForm = soportaVentaPorKg && kgPorUnidadForm > 0
     ? calcularPrecioVentaKg(costoFormulario, kgPorUnidadForm, margenKgForm)
     : 0;
   const costoKgForm = kgPorUnidadForm > 0 ? calcularPrecioCompraKg(costoFormulario, kgPorUnidadForm) : 0;
@@ -332,21 +335,26 @@ export default function Productos() {
       }
 
       const esKg = formProducto.unidad === 'kg';
-      const precioCompra = (editandoProducto || esKg)
+      const esPieza = formProducto.unidad === 'unidades';
+      const precioCompra = (editandoProducto || esKg || esPieza)
         ? parseNumero(formProducto.precioCompra)
         : calcularCostoUnitario(formProducto.precioCompra, formProducto.cantidad);
       const margenBolsa = parseMargenFormulario(formProducto.margenBolsa);
-      const margenKg = parseMargenFormulario(formProducto.margenKg, margenBolsa);
+      const margenKg = esPieza
+        ? margenBolsa
+        : parseMargenFormulario(formProducto.margenKg, margenBolsa);
       const margenBolsaFinal = esKg ? margenKg : margenBolsa;
       const precioVentaCalculado = esKg
         ? calcularPrecioVenta(precioCompra, margenKg)
         : calcularPrecioVenta(precioCompra, margenBolsa);
-      const kgPorUnidad = parseNumero(formProducto.kgPorUnidad) || extraerKgDelNombre(nombre);
+      const kgPorUnidad = esPieza
+        ? 0
+        : parseNumero(formProducto.kgPorUnidad) || extraerKgDelNombre(nombre);
       const precioKgFinal = esKg
         ? precioVentaCalculado
         : kgPorUnidad > 0
           ? calcularPrecioVentaKg(precioCompra, kgPorUnidad, margenKg)
-          : parseNumero(formProducto.precioKg);
+          : 0;
       const payload = {
         ...formProducto,
         nombre,
@@ -784,7 +792,7 @@ export default function Productos() {
               </label>
               <label className="block">
                 <span className="block text-sm font-medium text-slate-600 mb-1">
-                  {editandoProducto ? 'Stock disponible' : 'Cantidad comprada'}
+                  {editandoProducto ? 'Stock disponible' : (esUnidadPieza ? 'Cantidad en stock' : 'Cantidad comprada')}
                 </span>
                 <input
                   type="number"
@@ -815,7 +823,7 @@ export default function Productos() {
                 <span className="block text-sm font-medium text-slate-600 mb-1">
                   {esUnidadKg
                     ? 'Costo por kg ($)'
-                    : (editandoProducto ? 'Costo unitario ($)' : 'Precio compra total ($)')}
+                    : (costoDirecto ? 'Costo por unidad ($)' : 'Precio compra total ($)')}
                 </span>
                 <input
                   type="number"
@@ -823,10 +831,11 @@ export default function Productos() {
                   step="0.01"
                   value={formProducto.precioCompra}
                   onChange={(e) => setFormProducto((prev) => ({ ...prev, precioCompra: e.target.value }))}
-                  placeholder={esUnidadKg ? 'Ej: 500' : 'Ej: 1500'}
+                  placeholder={esUnidadKg ? 'Ej: 500' : (esUnidadPieza ? 'Ej: 150' : 'Ej: 1500')}
                   className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                 />
               </label>
+              {!esUnidadPieza && (
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3">
                 <span className="block text-sm font-medium text-emerald-800">
                   {esUnidadKg
@@ -842,27 +851,51 @@ export default function Productos() {
                     : (editandoProducto ? 'Se usa para recalcular el precio de venta.' : 'Precio compra total dividido por cantidad.')}
                 </span>
               </div>
-              <div className={esUnidadKg ? 'block' : 'grid grid-cols-1 sm:grid-cols-2 gap-3'}>
-                {!esUnidadKg && (
-                  <label className="block">
-                    <span className="block text-sm font-medium text-slate-600 mb-1">
-                      % ganancia por {etiquetaVentaUnidad(formProducto.unidad)}
-                    </span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.1"
-                      value={formProducto.margenBolsa}
-                      onChange={(e) => setFormProducto((prev) => ({ ...prev, margenBolsa: e.target.value }))}
-                      placeholder="Ej: 30"
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                    />
-                  </label>
-                )}
+              )}
+              {esUnidadKg ? (
+                <label className="block">
+                  <span className="block text-sm font-medium text-slate-600 mb-1">% ganancia por kg</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={formProducto.margenKg}
+                    onChange={(e) => setFormProducto((prev) => ({ ...prev, margenKg: e.target.value }))}
+                    placeholder="Ej: 30"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  />
+                </label>
+              ) : esUnidadPieza ? (
+                <label className="block">
+                  <span className="block text-sm font-medium text-slate-600 mb-1">% ganancia por unidad</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={formProducto.margenBolsa}
+                    onChange={(e) => setFormProducto((prev) => ({ ...prev, margenBolsa: e.target.value }))}
+                    placeholder="Ej: 30"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  />
+                </label>
+              ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <label className="block">
                   <span className="block text-sm font-medium text-slate-600 mb-1">
-                    {esUnidadKg ? '% ganancia por kg' : '% ganancia por kg suelto'}
+                    % ganancia por {etiquetaVentaUnidad(formProducto.unidad)}
                   </span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={formProducto.margenBolsa}
+                    onChange={(e) => setFormProducto((prev) => ({ ...prev, margenBolsa: e.target.value }))}
+                    placeholder="Ej: 30"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  />
+                </label>
+                <label className="block">
+                  <span className="block text-sm font-medium text-slate-600 mb-1">% ganancia por kg suelto</span>
                   <input
                     type="number"
                     min="0"
@@ -874,7 +907,8 @@ export default function Productos() {
                   />
                 </label>
               </div>
-              {!esUnidadKg && (
+              )}
+              {soportaVentaPorKg && (
                 <>
                   <label className="block">
                     <span className="block text-sm font-medium text-slate-600 mb-1">Kg por unidad</span>
@@ -923,7 +957,9 @@ export default function Productos() {
                 <span className="text-xs text-emerald-700">
                   {esUnidadKg
                     ? `Costo por kg + ${margenKgForm}% de ganancia.`
-                    : `Costo unitario + ${margenBolsaForm}% de ganancia por ${etiquetaVentaUnidad(formProducto.unidad)}.`}
+                    : esUnidadPieza
+                      ? `Costo por unidad + ${margenBolsaForm}% de ganancia.`
+                      : `Costo unitario + ${margenBolsaForm}% de ganancia por ${etiquetaVentaUnidad(formProducto.unidad)}.`}
                 </span>
               </div>
               <label className="block">
@@ -1031,7 +1067,7 @@ export default function Productos() {
                   </div>
                 </div>
               </div>
-              {p.unidad !== 'kg' && (
+              {p.unidad !== 'kg' && p.unidad !== 'unidades' && (
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <div className="rounded-2xl bg-slate-50 border border-slate-100 p-3">
                     <div className="text-xs text-slate-500">Venta suelta / kg</div>
