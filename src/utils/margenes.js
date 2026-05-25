@@ -7,10 +7,34 @@ import {
 
 export const MARGEN_DEFAULT = 30;
 
+/** Respaldo en observacion si Supabase aun no tiene columnas margen_* */
+export const MARGENES_OBSERVACION_RE = /\[margenes:bolsa=([\d.]+),kg=([\d.]+)\]\s*/;
+
+export function extraerMargenesDeObservacion(observacion) {
+  const match = String(observacion || '').match(MARGENES_OBSERVACION_RE);
+  if (!match) return null;
+  return {
+    bolsa: Number(match[1]),
+    kg: Number(match[2]),
+  };
+}
+
+export function limpiarObservacionParaMostrar(observacion) {
+  return String(observacion || '').replace(MARGENES_OBSERVACION_RE, '').trim();
+}
+
+export function observacionConMargenes(observacionUsuario, margenBolsa, margenKg) {
+  const limpio = limpiarObservacionParaMostrar(observacionUsuario);
+  const bolsa = Number.isFinite(Number(margenBolsa)) ? Number(margenBolsa) : MARGEN_DEFAULT;
+  const kg = Number.isFinite(Number(margenKg)) ? Number(margenKg) : bolsa;
+  const tag = `[margenes:bolsa=${bolsa},kg=${kg}]`;
+  return limpio ? `${limpio} ${tag}` : tag;
+}
+
 export function calcularPrecioVenta(precioCompra, margenPorcentaje) {
   const compra = parseNumeroFlexible(precioCompra);
-  const margen = parseNumeroFlexible(margenPorcentaje) || MARGEN_DEFAULT;
-  if (compra <= 0) return 0;
+  const margen = parseNumeroFlexible(margenPorcentaje);
+  if (compra <= 0 || !Number.isFinite(margen) || margen < 0) return 0;
   return Math.round(compra * (1 + margen / 100));
 }
 
@@ -28,8 +52,24 @@ export function formatearMargen(margen) {
   return Number.isInteger(n) ? String(n) : n.toFixed(1).replace(/\.0$/, '');
 }
 
+/** Lee el % del formulario sin tope (permite 118, 200, etc.) */
+export function parseMargenFormulario(valor, fallback = MARGEN_DEFAULT) {
+  const texto = String(valor ?? '').trim();
+  if (!texto) return fallback;
+  const n = parseNumeroFlexible(valor);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return n;
+}
+
+export function productoTieneMargenGuardado(producto, tipo = 'bolsa') {
+  if (tipo === 'kg') {
+    return producto?.margenKg != null && Number.isFinite(Number(producto.margenKg));
+  }
+  return producto?.margenBolsa != null && Number.isFinite(Number(producto.margenBolsa));
+}
+
 export function resolverMargenBolsa(producto, precioCompra = 0, precioVenta = 0) {
-  if (producto?.margenBolsa != null && producto.margenBolsa !== '' && Number.isFinite(Number(producto.margenBolsa))) {
+  if (productoTieneMargenGuardado(producto, 'bolsa')) {
     return Number(producto.margenBolsa);
   }
   const inferido = calcularMargenDesdePrecios(
@@ -40,7 +80,7 @@ export function resolverMargenBolsa(producto, precioCompra = 0, precioVenta = 0)
 }
 
 export function resolverMargenKg(producto, precioCompra = 0, options = {}) {
-  if (producto?.margenKg != null && producto.margenKg !== '' && Number.isFinite(Number(producto.margenKg))) {
+  if (productoTieneMargenGuardado(producto, 'kg')) {
     return Number(producto.margenKg);
   }
   const compra = Number(precioCompra) || Number(producto?.precioCompra) || 0;
@@ -64,20 +104,52 @@ export function resolverMargenKg(producto, precioCompra = 0, options = {}) {
   return resolverMargenBolsa(producto, precioCompra, precioVenta);
 }
 
-export function resolverPrecioKgVenta(producto, precioCompra, precioVenta) {
+/**
+ * Arma precios y márgenes coherentes: si el margen está guardado, el precio sale del margen
+ * (no de valores viejos del stock que cambiarían el % al reabrir).
+ */
+export function enriquecerProductoConMargenes(producto, precioCompra, options = {}) {
   const compra = Number(precioCompra) || Number(producto?.precioCompra) || 0;
-  const venta = Number(precioVenta) || Number(producto?.price) || 0;
+  const kgPorUnidad = options.kgPorUnidad || extraerKgDelNombre(producto?.name);
+  const precioVentaStock = Number(options.precioVentaStock) || 0;
+  const precioKgStock = Number(options.precioKgStock) || 0;
 
-  if (producto?.unidad === 'kg') {
-    return venta || calcularPrecioVenta(compra, resolverMargenKg(producto, compra, { precioVenta: venta }));
-  }
+  const margenBolsa = resolverMargenBolsa(producto, compra, precioVentaStock || producto?.price);
+  const margenKg = resolverMargenKg(producto, compra, {
+    precioVenta: precioVentaStock,
+    precioKg: precioKgStock,
+    kgPorUnidad,
+  });
 
-  const guardado = Number(producto?.precioKg) || 0;
-  if (guardado > 0) return guardado;
+  const tieneMargenBolsa = productoTieneMargenGuardado(producto, 'bolsa');
+  const tieneMargenKg = productoTieneMargenGuardado(producto, 'kg');
 
-  const kgPorUnidad = extraerKgDelNombre(producto?.name);
-  if (kgPorUnidad <= 0 || compra <= 0) return 0;
+  const price = tieneMargenBolsa
+    ? calcularPrecioVenta(compra, margenBolsa)
+    : (precioVentaStock || Number(producto?.price) || calcularPrecioVenta(compra, margenBolsa));
 
-  const margenKg = resolverMargenKg(producto, compra, { precioVenta: venta, kgPorUnidad });
-  return calcularPrecioVentaKg(compra, kgPorUnidad, margenKg);
+  const precioKg = producto?.unidad === 'kg'
+    ? price
+    : kgPorUnidad > 0
+      ? (tieneMargenKg
+        ? calcularPrecioVentaKg(compra, kgPorUnidad, margenKg)
+        : (precioKgStock || Number(producto?.precioKg) || calcularPrecioVentaKg(compra, kgPorUnidad, margenKg)))
+      : Number(producto?.precioKg) || 0;
+
+  return {
+    precioCompra: compra,
+    margenBolsa,
+    margenKg,
+    price,
+    precioKg,
+  };
+}
+
+export function resolverPrecioKgVenta(producto, precioCompra, precioVenta) {
+  const enriquecido = enriquecerProductoConMargenes(producto, precioCompra, {
+    precioVentaStock: precioVenta,
+    precioKgStock: producto?.precioKg,
+    kgPorUnidad: extraerKgDelNombre(producto?.name),
+  });
+  return enriquecido.precioKg;
 }

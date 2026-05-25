@@ -1,5 +1,10 @@
 import { supabase } from '../supabaseClient';
 import { extraerKgDelNombre } from '../utils/preciosKg';
+import {
+  extraerMargenesDeObservacion,
+  limpiarObservacionParaMostrar,
+  observacionConMargenes,
+} from '../utils/margenes';
 
 function requireSupabase() {
   if (!supabase) {
@@ -63,6 +68,12 @@ function buildProductoDbRow(producto, { includeMargenes = true } = {}) {
   if (includeMargenes) {
     row.margen_bolsa = producto.margenBolsa != null ? Number(producto.margenBolsa) : null;
     row.margen_kg = producto.margenKg != null ? Number(producto.margenKg) : null;
+  } else if (producto.margenBolsa != null || producto.margenKg != null) {
+    row.observacion = observacionConMargenes(
+      producto.observacion,
+      producto.margenBolsa,
+      producto.margenKg,
+    );
   }
 
   return row;
@@ -94,19 +105,27 @@ async function persistirProductoDb(client, { id, producto, esInserto }) {
 function mapProducto(row) {
   const unidad = row.unidad_default || 'unidades';
   const stockLabel = unidad === 'fardos' ? '0 fardos' : unidad === 'bolsas' ? '0 bolsas' : `0 ${unidad}`;
+  const margenesObs = extraerMargenesDeObservacion(row.observacion);
+  const margenBolsa = row.margen_bolsa != null
+    ? Number(row.margen_bolsa)
+    : (margenesObs?.bolsa ?? null);
+  const margenKg = row.margen_kg != null
+    ? Number(row.margen_kg)
+    : (margenesObs?.kg ?? null);
+
   return {
     id: row.id,
     name: row.nombre,
     price: Number(row.precio_unidad) || 0,
     precioKg: Number(row.precio_kg) || 0,
     precioCompra: Number(row.precio_compra_ref) || 0,
-    margenBolsa: row.margen_bolsa != null ? Number(row.margen_bolsa) : null,
-    margenKg: row.margen_kg != null ? Number(row.margen_kg) : null,
+    margenBolsa,
+    margenKg,
     stock: stockLabel,
     unidad,
     proveedor: row.proveedor_nombre || '',
     numeroProveedor: row.proveedor_telefono || '',
-    observacion: row.observacion || '',
+    observacion: limpiarObservacionParaMostrar(row.observacion),
     favorite: Boolean(row.favorito),
     activo: row.activo !== false,
   };
