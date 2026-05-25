@@ -5,6 +5,7 @@ import {
   limpiarObservacionParaMostrar,
   observacionConMargenes,
 } from '../utils/margenes';
+import { claveNombreProducto, normalizarNombreProducto } from '../utils/nombreProducto';
 
 function requireSupabase() {
   if (!supabase) {
@@ -53,7 +54,7 @@ function mapPresupuesto(row) {
 
 function buildProductoDbRow(producto, { includeMargenes = true } = {}) {
   const row = {
-    nombre: producto.nombre,
+    nombre: normalizarNombreProducto(producto.nombre),
     precio_unidad: Number(producto.precioUnidad) || 0,
     precio_kg: Number(producto.precioKg) || 0,
     precio_compra_ref: Number(producto.precioCompra) || 0,
@@ -302,6 +303,23 @@ export async function listarProductos() {
   return (data || []).map(mapProducto);
 }
 
+export async function existeProductoConNombre(nombre, { excluirId } = {}) {
+  const client = requireSupabase();
+  const normalizado = normalizarNombreProducto(nombre);
+  if (!normalizado) return false;
+
+  const { data, error } = await client
+    .from('productos')
+    .select('id, nombre')
+    .eq('activo', true);
+  if (error) throw error;
+
+  const clave = claveNombreProducto(normalizado);
+  return (data || []).some(
+    (row) => claveNombreProducto(row.nombre) === clave && row.id !== excluirId,
+  );
+}
+
 export async function crearProducto(producto) {
   const client = requireSupabase();
   const { data, error } = await persistirProductoDb(client, { producto, esInserto: true });
@@ -403,65 +421,49 @@ export async function listarStockSaldos() {
 
 export async function guardarStockSaldos(porProducto) {
   const client = requireSupabase();
-  const nombres = Object.keys(porProducto);
-  if (nombres.length === 0) return;
+  const nombresStock = Object.keys(porProducto || {});
+  if (nombresStock.length === 0) return;
 
-  const { data: productos, error: productosError } = await client
+  const { data: productosCatalogo, error: productosError } = await client
     .from('productos')
     .select('id, nombre')
-    .in('nombre', nombres);
+    .eq('activo', true);
   if (productosError) throw productosError;
 
-  const productosPorNombre = new Map((productos || []).map((p) => [p.nombre, p.id]));
-  const faltantes = nombres.filter((nombre) => !productosPorNombre.has(nombre));
-
-  if (faltantes.length > 0) {
-    const { data: nuevos, error: nuevosError } = await client
-      .from('productos')
-      .upsert(faltantes.map((nombre) => ({ nombre })), { onConflict: 'nombre' })
-      .select('id, nombre');
-    if (nuevosError) throw nuevosError;
-    (nuevos || []).forEach((p) => productosPorNombre.set(p.nombre, p.id));
+  const productoPorClave = new Map();
+  for (const p of productosCatalogo || []) {
+    const clave = claveNombreProducto(p.nombre);
+    if (clave) productoPorClave.set(clave, p);
   }
 
-  const payload = nombres
-    .map((nombre) => {
-      const datos = porProducto[nombre] || {};
-      const productoId = productosPorNombre.get(nombre);
-      if (!productoId) return null;
-      return {
-        producto_id: productoId,
-        cantidad_comprada: Number(datos.cantidadComprada) || 0,
-        cantidad_vendida: Number(datos.cantidadVendida) || 0,
-        precio_compra: Number(datos.precioCompra) || 0,
-        precio_venta: Number(datos.precioVenta) || 0,
-        updated_at: new Date().toISOString(),
-      };
-    })
-    .filter(Boolean);
+  const payload = [];
+
+  for (const nombreStock of nombresStock) {
+    const producto = productoPorClave.get(claveNombreProducto(nombreStock));
+    if (!producto) continue;
+
+    const datos = porProducto[nombreStock] || {};
+    payload.push({
+      producto_id: producto.id,
+      cantidad_comprada: Number(datos.cantidadComprada) || 0,
+      cantidad_vendida: Number(datos.cantidadVendida) || 0,
+      precio_compra: Number(datos.precioCompra) || 0,
+      precio_venta: Number(datos.precioVenta) || 0,
+      updated_at: new Date().toISOString(),
+    });
+  }
 
   if (payload.length === 0) return;
+
   const { error } = await client
     .from('stock_saldos')
     .upsert(payload, { onConflict: 'producto_id' });
   if (error) throw error;
-
-  const productosPayload = payload.map((row) => ({
-    id: row.producto_id,
-    precio_compra_ref: row.precio_compra,
-    precio_unidad: row.precio_venta,
-    updated_at: row.updated_at,
-  }));
-
-  const { error: syncError } = await client
-    .from('productos')
-    .upsert(productosPayload, { onConflict: 'id' });
-  if (syncError) throw syncError;
 }
 
 export async function registrarIngresoStock(ingreso) {
   const client = requireSupabase();
-  const productoNombre = ingreso.producto;
+  const productoNombre = normalizarNombreProducto(ingreso.producto);
 
   const { data: producto, error: productoError } = await client
     .from('productos')

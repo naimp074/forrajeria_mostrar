@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useProductos } from '../context/ProductosContext';
 import { useStock } from '../context/StockContext';
-import { registrarIngresoStock } from '../services/supabaseData';
+import { registrarIngresoStock, existeProductoConNombre } from '../services/supabaseData';
 import { usePagination } from '../hooks/usePagination';
 import Paginacion from '../components/Paginacion';
 import {
@@ -16,6 +16,7 @@ import {
   formatearMargen,
   parseMargenFormulario,
 } from '../utils/margenes';
+import { normalizarNombreProducto, nombresEquivalentes, buscarStockProducto } from '../utils/nombreProducto';
 
 function formatMoneda(n) {
   return '$' + Number(n).toLocaleString('es-AR').replace(/,/g, '.');
@@ -90,13 +91,14 @@ function mensajeErrorGuardadoProducto(err) {
   return 'No se pudo guardar el producto. Revisá tu conexión e intentá de nuevo.';
 }
 
+
 function avisarProveedoresActualizados() {
   window.dispatchEvent(new CustomEvent('forrajeria:proveedores-actualizados'));
 }
 
 export default function Productos() {
   const { productos, loading, error, recargarProductos, crearProducto, actualizarProducto, borrarProducto } = useProductos();
-  const { porProducto, setPorProducto } = useStock();
+  const { porProducto, setPorProducto, eliminarStockPorNombre, sincronizarStockConCatalogo } = useStock();
   const ventasPorProducto = [];
   const ventasPorProductoPorMes = [];
   const [mesBalance, setMesBalance] = useState('');
@@ -124,16 +126,19 @@ export default function Productos() {
   });
   const [guardandoProducto, setGuardandoProducto] = useState(false);
   const [productoError, setProductoError] = useState(null);
-  const sincronizandoPreciosRef = useRef(false);
-  const intentosSincronizacionRef = useRef({ firma: '', intentos: 0, timer: null });
 
   useEffect(() => {
     recargarProductos();
   }, [recargarProductos]);
 
+  useEffect(() => {
+    if (productos.length === 0) return;
+    sincronizarStockConCatalogo(productos.map((p) => p.name));
+  }, [productos, sincronizarStockConCatalogo]);
+
   const productosConPreciosStock = useMemo(() => {
     return productos.map((producto) => {
-      const stock = porProducto[producto.name] || {};
+      const stock = buscarStockProducto(porProducto, producto.name);
       const precioCompraStock = Number(stock.precioCompra) || 0;
       const precioVentaStock = Number(stock.precioVenta) || 0;
       const disponible = stockDisponible(stock);
@@ -171,50 +176,6 @@ export default function Productos() {
     ? calcularPrecioVentaKg(costoFormulario, kgPorUnidadForm, margenKgForm)
     : 0;
   const costoKgForm = kgPorUnidadForm > 0 ? calcularPrecioCompraKg(costoFormulario, kgPorUnidadForm) : 0;
-
-  useEffect(() => {
-    if (sincronizandoPreciosRef.current || productos.length === 0) return;
-
-    const preciosDesincronizados = productos
-      .map((producto) => {
-        const stock = porProducto[producto.name];
-        if (!stock) return null;
-        const precioCompraStock = Number(stock.precioCompra) || 0;
-        const precioVentaStock = Number(stock.precioVenta) || 0;
-        const precioCompraProducto = Number(producto.precioCompra) || 0;
-        const precioVentaProducto = Number(producto.price) || 0;
-        const cambioCompra = precioCompraStock > 0 && precioCompraStock !== precioCompraProducto;
-        const cambioVenta = precioVentaStock > 0 && precioVentaStock !== precioVentaProducto;
-        if (!cambioCompra && !cambioVenta) return null;
-        return `${producto.name}:${precioCompraStock}:${precioVentaStock}:${precioCompraProducto}:${precioVentaProducto}`;
-      })
-      .filter(Boolean);
-
-    if (preciosDesincronizados.length === 0) {
-      intentosSincronizacionRef.current = { firma: '', intentos: 0, timer: null };
-      return;
-    }
-
-    const firma = preciosDesincronizados.join('|');
-    const estadoIntentos = intentosSincronizacionRef.current;
-    if (estadoIntentos.firma !== firma) {
-      intentosSincronizacionRef.current = { firma, intentos: 0, timer: null };
-    }
-
-    if (intentosSincronizacionRef.current.intentos >= 2) return;
-
-    sincronizandoPreciosRef.current = true;
-    intentosSincronizacionRef.current.intentos += 1;
-    setPorProducto((prev) => prev);
-    const timer = window.setTimeout(() => {
-      recargarProductos().finally(() => {
-        sincronizandoPreciosRef.current = false;
-      });
-    }, 700);
-    intentosSincronizacionRef.current.timer = timer;
-
-    return () => window.clearTimeout(timer);
-  }, [productos, porProducto, recargarProductos, setPorProducto]);
 
   const datosMes = ventasPorProductoPorMes.find((m) => m.mes === mesBalance);
   const aRenovar = datosMes
@@ -285,7 +246,7 @@ export default function Productos() {
       precioKg: String(producto.precioKg ?? ''),
       kgPorUnidad: String(extraerKgDelNombre(producto.name) || ''),
       precioCompra: String(producto.precioCompra ?? ''),
-      cantidad: String(producto.cantidadDisponible ?? stockDisponible(porProducto[producto.name]) ?? ''),
+      cantidad: String(producto.cantidadDisponible ?? stockDisponible(buscarStockProducto(porProducto, producto.name)) ?? ''),
       unidad: producto.unidad || 'bolsas',
       proveedor: producto.proveedor || '',
       numeroProveedor: producto.numeroProveedor || '',
@@ -339,20 +300,37 @@ export default function Productos() {
 
   const guardarProductoEditado = async (e) => {
     e.preventDefault();
-    const nombre = formProducto.nombre.trim();
+    const nombre = normalizarNombreProducto(formProducto.nombre);
     if (!nombre) {
       setProductoError('El nombre del producto es obligatorio.');
       return;
     }
-    const cantidad = parseNumero(formProducto.cantidad);
-    if (!editandoProducto && cantidad <= 0) {
-      setProductoError('La cantidad inicial debe ser mayor a 0.');
+
+    const duplicadoLocal = productos.some(
+      (p) => nombresEquivalentes(p.name, nombre) && p.id !== editandoProducto?.id,
+    );
+    if (duplicadoLocal) {
+      setProductoError('Ya existe un producto con ese nombre (o uno muy parecido). Editá el existente en lugar de crear otro.');
       return;
     }
 
     setGuardandoProducto(true);
     setProductoError(null);
     try {
+      const duplicadoRemoto = await existeProductoConNombre(nombre, {
+        excluirId: editandoProducto?.id,
+      });
+      if (duplicadoRemoto) {
+        setProductoError('Ya existe otro producto con ese nombre en Supabase.');
+        return;
+      }
+
+      const cantidad = parseNumero(formProducto.cantidad);
+      if (!editandoProducto && cantidad <= 0) {
+        setProductoError('La cantidad inicial debe ser mayor a 0.');
+        return;
+      }
+
       const esKg = formProducto.unidad === 'kg';
       const precioCompra = (editandoProducto || esKg)
         ? parseNumero(formProducto.precioCompra)
@@ -388,7 +366,16 @@ export default function Productos() {
           numeroProveedorEditado !== (editandoProducto.numeroProveedor || '').trim();
         await actualizarProducto(editandoProducto.id, payload);
         setPorProducto((prev) => {
-          const actual = prev[editandoProducto.name] || prev[nombre] || {
+          const nombreAnterior = editandoProducto.name;
+          let actual = null;
+          const next = { ...prev };
+          for (const key of Object.keys(prev)) {
+            if (nombresEquivalentes(key, nombreAnterior) || nombresEquivalentes(key, nombre)) {
+              actual = actual || prev[key];
+              if (!nombresEquivalentes(key, nombre)) delete next[key];
+            }
+          }
+          actual = actual || {
             cantidadComprada: 0,
             cantidadVendida: 0,
             precioCompra: 0,
@@ -396,10 +383,6 @@ export default function Productos() {
           };
           const disponibleActual = stockDisponible(actual);
           const cantidadDisponible = String(formProducto.cantidad).trim() !== '' ? cantidad : disponibleActual;
-          const next = { ...prev };
-          if (editandoProducto.name !== nombre) {
-            delete next[editandoProducto.name];
-          }
           next[nombre] = {
             ...actual,
             cantidadComprada: (Number(actual.cantidadVendida) || 0) + cantidadDisponible,
@@ -446,6 +429,7 @@ export default function Productos() {
           avisarProveedoresActualizados();
         }
       }
+      await recargarProductos();
       cancelarEdicion();
     } catch (err) {
       console.warn('No se pudo guardar el producto.', err);
@@ -464,6 +448,8 @@ export default function Productos() {
     setProductoError(null);
     try {
       await borrarProducto(producto.id);
+      eliminarStockPorNombre(producto.name);
+      await recargarProductos();
       if (editandoProducto?.id === producto.id) cancelarEdicion();
     } catch (err) {
       console.warn('No se pudo borrar el producto.', err);
@@ -1005,7 +991,7 @@ export default function Productos() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {catalogoPaginacion.paginatedItems.map((p) => (
             <div
-              key={p.name}
+              key={p.id}
               className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
             >
               <div className="flex items-start justify-between gap-3 min-w-0">

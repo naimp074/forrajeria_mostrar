@@ -11,6 +11,7 @@ import {
   resolverMargenBolsa,
   resolverPrecioKgVenta,
 } from '../utils/margenes';
+import { buscarStockProducto } from '../utils/nombreProducto';
 
 const IconoBuscar = () => (
   <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -109,7 +110,7 @@ export default function VentaRapida() {
 
   const productosConStock = useMemo(() => {
     return productosFiltrados.map((producto) => {
-      const stock = porProducto[producto.name] || {};
+      const stock = buscarStockProducto(porProducto, producto.name);
       const disponible = Math.max(0, (Number(stock.cantidadComprada) || 0) - (Number(stock.cantidadVendida) || 0));
       const precioVenta = resolverPrecioVenta(stock, producto);
       const precioCompra = Number(stock.precioCompra) || Number(producto.precioCompra) || 0;

@@ -128,7 +128,7 @@ export default function StockExcel({ porProducto, setPorProducto }) {
         />
       </div>
       <div className="px-4 sm:px-6 pb-4 sm:pb-6 text-sm text-slate-500">
-        Al exportar se incluyen el catálogo y los productos nuevos que hayas cargado. Al importar, cada fila actualiza o crea el producto por nombre (también nombres que no estén en el catálogo).
+        Al importar, cada fila actualiza stock solo de productos que ya existen en el catálogo. Para productos nuevos, creálos primero en Productos.
       </div>
     </section>
   );

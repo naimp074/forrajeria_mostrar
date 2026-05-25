@@ -1,6 +1,7 @@
 /* eslint react-refresh/only-export-components: off */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { guardarStockSaldos, listarStockSaldos } from '../services/supabaseData';
+import { nombresEquivalentes, podarStockConCatalogo } from '../utils/nombreProducto';
 
 const StockContext = createContext(null);
 const STOCK_KEY = 'forrajeria_stock_por_producto_v2';
@@ -40,7 +41,6 @@ export function StockProvider({ children }) {
       const loaded = JSON.parse(raw);
       return normalizeLoadedState(loaded);
     } catch {
-      // Si falla, usamos el estado inicial.
       return estadoInicialPorProducto();
     }
   });
@@ -78,26 +78,58 @@ export function StockProvider({ children }) {
     }
   }, [porProducto]);
 
+  const persistirStock = useCallback((normalized) => {
+    guardarStockSaldos(normalized).catch((err) => {
+      console.warn('No se pudo guardar stock en Supabase.', err);
+      setError('El stock quedó guardado localmente porque Supabase no respondió.');
+    });
+  }, []);
+
   const setPorProducto = useCallback((updater) => {
     setPorProductoState((prev) => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
       const normalized = normalizeLoadedState(next);
-      guardarStockSaldos(normalized).catch((err) => {
-        console.warn('No se pudo guardar stock en Supabase.', err);
-        setError('El stock quedo guardado localmente porque Supabase no respondio.');
-      });
+      persistirStock(normalized);
       return normalized;
     });
-  }, []);
+  }, [persistirStock]);
+
+  const eliminarStockPorNombre = useCallback((nombre) => {
+    if (!nombre) return;
+    setPorProductoState((prev) => {
+      const next = { ...prev };
+      for (const key of Object.keys(next)) {
+        if (nombresEquivalentes(key, nombre)) {
+          delete next[key];
+        }
+      }
+      const normalized = normalizeLoadedState(next);
+      persistirStock(normalized);
+      return normalized;
+    });
+  }, [persistirStock]);
+
+  const sincronizarStockConCatalogo = useCallback((nombresCatalogo) => {
+    setPorProductoState((prev) => {
+      const podado = podarStockConCatalogo(prev, nombresCatalogo);
+      const normalized = normalizeLoadedState(podado);
+      if (JSON.stringify(normalized) !== JSON.stringify(prev)) {
+        persistirStock(normalized);
+      }
+      return normalized;
+    });
+  }, [persistirStock]);
 
   const value = useMemo(
     () => ({
       porProducto,
       setPorProducto,
+      eliminarStockPorNombre,
+      sincronizarStockConCatalogo,
       loading,
       error,
     }),
-    [porProducto, setPorProducto, loading, error]
+    [porProducto, setPorProducto, eliminarStockPorNombre, sincronizarStockConCatalogo, loading, error],
   );
 
   return <StockContext.Provider value={value}>{children}</StockContext.Provider>;
@@ -108,4 +140,3 @@ export function useStock() {
   if (!ctx) throw new Error('useStock debe usarse dentro de StockProvider');
   return ctx;
 }
-
