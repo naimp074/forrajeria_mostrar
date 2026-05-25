@@ -56,6 +56,20 @@ function formatCantidad(cantidad, unidad = 'unidades') {
   return `${n.toLocaleString('es-AR', { maximumFractionDigits: 3 })} ${unidad}`;
 }
 
+function redondearStock(cantidad, unidad = 'bolsas') {
+  const n = Number(cantidad);
+  if (!Number.isFinite(n)) return 0;
+  const decimales = unidad === 'kg' ? 3 : 3;
+  const factor = 10 ** decimales;
+  return Math.round(n * factor) / factor;
+}
+
+function formatStockParaEdicion(cantidad, unidad = 'bolsas') {
+  if (cantidad === '' || cantidad == null) return '';
+  const redondeado = redondearStock(cantidad, unidad);
+  return Number.isFinite(redondeado) ? String(redondeado) : '';
+}
+
 function fechaHoy() {
   const d = new Date();
   return d.toISOString().slice(0, 10);
@@ -249,7 +263,10 @@ export default function Productos() {
       precioKg: String(producto.precioKg ?? ''),
       kgPorUnidad: String(extraerKgDelNombre(producto.name) || ''),
       precioCompra: String(producto.precioCompra ?? ''),
-      cantidad: String(producto.cantidadDisponible ?? stockDisponible(buscarStockProducto(porProducto, producto.name)) ?? ''),
+      cantidad: formatStockParaEdicion(
+        producto.cantidadDisponible ?? stockDisponible(buscarStockProducto(porProducto, producto.name)),
+        producto.unidad || 'bolsas',
+      ),
       unidad: producto.unidad || 'bolsas',
       proveedor: producto.proveedor || '',
       numeroProveedor: producto.numeroProveedor || '',
@@ -389,11 +406,17 @@ export default function Productos() {
             precioCompra: 0,
             precioVenta: 0,
           };
-          const disponibleActual = stockDisponible(actual);
-          const cantidadDisponible = String(formProducto.cantidad).trim() !== '' ? cantidad : disponibleActual;
+          const disponibleActual = redondearStock(stockDisponible(actual), formProducto.unidad);
+          const stockIngresado = String(formProducto.cantidad).trim() !== '';
+          const cantidadDisponible = stockIngresado
+            ? redondearStock(cantidad, formProducto.unidad)
+            : disponibleActual;
           next[nombre] = {
             ...actual,
-            cantidadComprada: (Number(actual.cantidadVendida) || 0) + cantidadDisponible,
+            cantidadComprada: redondearStock(
+              (Number(actual.cantidadVendida) || 0) + cantidadDisponible,
+              formProducto.unidad,
+            ),
             precioCompra,
             precioVenta,
           };
@@ -792,12 +815,12 @@ export default function Productos() {
               </label>
               <label className="block">
                 <span className="block text-sm font-medium text-slate-600 mb-1">
-                  {editandoProducto ? 'Stock disponible' : (esUnidadPieza ? 'Cantidad en stock' : 'Cantidad comprada')}
+                  {editandoProducto ? 'Stock disponible (opcional)' : (esUnidadPieza ? 'Cantidad en stock' : 'Cantidad comprada')}
                 </span>
                 <input
                   type="number"
                   min="0"
-                  step="0.001"
+                  step="any"
                   inputMode="decimal"
                   value={formProducto.cantidad}
                   onChange={(e) => setFormProducto((prev) => ({ ...prev, cantidad: e.target.value }))}
@@ -805,6 +828,11 @@ export default function Productos() {
                   className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                   required={!editandoProducto}
                 />
+                {editandoProducto && (
+                  <span className="mt-1 block text-xs text-slate-500">
+                    Podés cambiar precio u otros datos sin tocar el stock. Corregilo acá solo si querés ajustar la cantidad (ej. 1,672 en lugar de 1,6722).
+                  </span>
+                )}
               </label>
               <label className="block">
                 <span className="block text-sm font-medium text-slate-600 mb-1">Unidad</span>
