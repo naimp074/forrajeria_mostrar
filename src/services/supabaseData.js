@@ -369,6 +369,44 @@ export async function borrarProducto(id) {
   if (error) throw error;
 }
 
+function mapPedidoCliente(row) {
+  const fecha = row.fecha
+    ? String(row.fecha).slice(0, 10)
+    : row.created_at?.slice(0, 10) || '';
+  return {
+    id: row.id,
+    producto: row.producto_solicitado,
+    cliente: row.cliente_nombre || 'Cliente',
+    fecha,
+  };
+}
+
+export async function listarPedidosClientes() {
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from('pedidos_clientes')
+    .select('*')
+    .order('fecha', { ascending: false })
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data || []).map(mapPedidoCliente);
+}
+
+export async function crearPedidoCliente(pedido) {
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from('pedidos_clientes')
+    .insert({
+      producto_solicitado: pedido.producto,
+      cliente_nombre: pedido.cliente || 'Cliente',
+      fecha: pedido.fecha || new Date().toISOString().slice(0, 10),
+    })
+    .select('*')
+    .single();
+  if (error) throw error;
+  return mapPedidoCliente(data);
+}
+
 export async function listarGastos() {
   const client = requireSupabase();
   const { data, error } = await client

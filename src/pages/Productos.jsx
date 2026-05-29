@@ -1,7 +1,12 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useProductos } from '../context/ProductosContext';
 import { useStock } from '../context/StockContext';
-import { registrarIngresoStock, existeProductoConNombre } from '../services/supabaseData';
+import {
+  registrarIngresoStock,
+  existeProductoConNombre,
+  listarPedidosClientes,
+  crearPedidoCliente,
+} from '../services/supabaseData';
 import { usePagination } from '../hooks/usePagination';
 import Paginacion from '../components/Paginacion';
 import {
@@ -117,6 +122,9 @@ export default function Productos() {
   const ventasPorProductoPorMes = [];
   const [mesBalance, setMesBalance] = useState('');
   const [listaPedidos, setListaPedidos] = useState([]);
+  const [loadingPedidos, setLoadingPedidos] = useState(true);
+  const [pedidoError, setPedidoError] = useState(null);
+  const [guardandoPedido, setGuardandoPedido] = useState(false);
   const [mostrarFormPedido, setMostrarFormPedido] = useState(false);
   const [productoPedido, setProductoPedido] = useState('');
   const [clientePedido, setClientePedido] = useState('');
@@ -144,6 +152,28 @@ export default function Productos() {
   useEffect(() => {
     recargarProductos();
   }, [recargarProductos]);
+
+  useEffect(() => {
+    let activo = true;
+    setLoadingPedidos(true);
+    setPedidoError(null);
+    listarPedidosClientes()
+      .then((pedidos) => {
+        if (activo) setListaPedidos(pedidos);
+      })
+      .catch((err) => {
+        if (activo) {
+          setPedidoError(err.message || 'No se pudieron cargar los pedidos.');
+          setListaPedidos([]);
+        }
+      })
+      .finally(() => {
+        if (activo) setLoadingPedidos(false);
+      });
+    return () => {
+      activo = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (productos.length === 0) return;
@@ -239,17 +269,27 @@ export default function Productos() {
   const pedidosPaginacion = usePagination(ultimosPedidos, { pageSize: 8 });
   const noTengoPaginacion = usePagination(topNoTengo, { pageSize: 10 });
 
-  const guardarPedido = (e) => {
+  const guardarPedido = async (e) => {
     e.preventDefault();
     const producto = productoPedido.trim();
-    if (!producto) return;
-    setListaPedidos((prev) => [
-      { producto, cliente: clientePedido.trim() || 'Cliente', fecha: fechaHoy() },
-      ...prev,
-    ]);
-    setProductoPedido('');
-    setClientePedido('');
-    setMostrarFormPedido(false);
+    if (!producto || guardandoPedido) return;
+    setGuardandoPedido(true);
+    setPedidoError(null);
+    try {
+      const nuevo = await crearPedidoCliente({
+        producto,
+        cliente: clientePedido.trim() || 'Cliente',
+        fecha: fechaHoy(),
+      });
+      setListaPedidos((prev) => [nuevo, ...prev]);
+      setProductoPedido('');
+      setClientePedido('');
+      setMostrarFormPedido(false);
+    } catch (err) {
+      setPedidoError(err.message || 'No se pudo guardar el pedido.');
+    } finally {
+      setGuardandoPedido(false);
+    }
   };
 
   const iniciarEdicion = (producto) => {
@@ -514,6 +554,12 @@ export default function Productos() {
           </button>
         </div>
 
+        {pedidoError && (
+          <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {pedidoError}
+          </div>
+        )}
+
         {mostrarFormPedido && (
           <form onSubmit={guardarPedido} className="mb-6 p-4 rounded-2xl border border-slate-200 bg-slate-50/80">
             <h3 className="text-sm font-semibold text-slate-700 mb-3">Qué te piden los clientes</h3>
@@ -542,14 +588,14 @@ export default function Productos() {
               <div className="flex gap-2">
                 <button
                   type="submit"
-                  disabled={!productoPedido.trim()}
+                  disabled={!productoPedido.trim() || guardandoPedido}
                   className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 disabled:pointer-events-none"
                 >
-                  Guardar pedido
+                  {guardandoPedido ? 'Guardando...' : 'Guardar pedido'}
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setMostrarFormPedido(false); setProductoPedido(''); setClientePedido(''); }}
+                  onClick={() => { setMostrarFormPedido(false); setProductoPedido(''); setClientePedido(''); setPedidoError(null); }}
                   className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
                 >
                   Cancelar
@@ -559,7 +605,9 @@ export default function Productos() {
           </form>
         )}
 
-        {ultimosPedidos.length > 0 ? (
+        {loadingPedidos ? (
+          <p className="text-slate-500 py-4">Cargando pedidos...</p>
+        ) : ultimosPedidos.length > 0 ? (
           <>
             {topNoTengo.length > 0 && (
               <div className="mb-6">
@@ -615,7 +663,7 @@ export default function Productos() {
                     {pedidosPaginacion.paginatedItems.map((ped, idx) => {
                       const tiene = nombresEnCatalogo.includes(ped.producto);
                       return (
-                        <tr key={`${ped.producto}-${ped.fecha}-${idx}`} className="border-b border-slate-100 last:border-0">
+                        <tr key={ped.id || `${ped.producto}-${ped.fecha}-${idx}`} className="border-b border-slate-100 last:border-0">
                           <td className="py-2 px-4 font-medium text-slate-800">{ped.producto}</td>
                           <td className="py-2 px-4 text-slate-600">{ped.cliente}</td>
                           <td className="py-2 px-4 text-slate-500">{ped.fecha}</td>
@@ -642,11 +690,11 @@ export default function Productos() {
               />
             </div>
           </>
-        ) : (
+        ) : !loadingPedidos ? (
           <p className="text-slate-500 py-4">
             Todavía no hay pedidos anotados. Usá el botón <strong>Anotar lo que piden</strong> para cargar lo que te piden los clientes.
           </p>
-        )}
+        ) : null}
       </section>
 
       {/* Balance por mes — qué renovar */}
