@@ -624,9 +624,9 @@ export default function VentaRapida() {
           {mensaje}
         </div>
       )}
-      <div className="rounded-2xl sm:rounded-[28px] bg-white border border-slate-200 shadow-lg overflow-hidden">
+      <div className="rounded-2xl sm:rounded-[28px] bg-white border border-slate-200 shadow-lg overflow-x-hidden">
         <div className="p-3 sm:p-6 flex flex-col lg:grid lg:grid-cols-[1.2fr_0.9fr] gap-5 lg:gap-8 min-h-0 lg:min-h-[520px]">
-          <div className="flex flex-col min-h-0">
+          <div className={`flex flex-col min-h-0 ${carrito.length > 0 ? 'order-2' : 'order-1'} lg:order-1`}>
           <div className="mb-3 sm:mb-4">
             <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Punto de Venta</h2>
             <p className="text-slate-500 mt-1 text-sm sm:text-base">
@@ -647,7 +647,7 @@ export default function VentaRapida() {
             />
           </div>
 
-          <div className="flex-1 overflow-auto rounded-xl border border-slate-100 bg-slate-50/50 min-h-[220px] sm:min-h-[260px] max-h-[55dvh] lg:max-h-none">
+          <div className={`flex-1 overflow-auto rounded-xl border border-slate-100 bg-slate-50/50 min-h-[180px] sm:min-h-[220px] ${carrito.length > 0 ? 'max-h-[38dvh]' : 'max-h-[55dvh]'} lg:max-h-none`}>
             {loadingProductos ? (
               <p className="text-slate-400 text-center py-6 sm:py-8 text-sm sm:text-base">Cargando productos...</p>
             ) : errorProductos ? (
@@ -705,7 +705,7 @@ export default function VentaRapida() {
           </div>
         </div>
 
-        <div className="lg:min-h-0 shrink-0 lg:shrink">
+        <div className={`lg:min-h-0 shrink-0 lg:shrink ${carrito.length > 0 ? 'order-1' : 'order-2'} lg:order-2`}>
           <Carrito
             items={carrito}
             permitirDescuento

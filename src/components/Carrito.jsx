@@ -172,7 +172,7 @@ export default function Carrito({
   };
 
   return (
-    <div className="rounded-2xl sm:rounded-3xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
+    <div id="carrito-venta" className="rounded-2xl sm:rounded-3xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
       <div className="flex items-center gap-2">
         <IconoCarrito />
         <h2 className="text-lg sm:text-xl font-bold">{titulo}</h2>
@@ -205,7 +205,7 @@ export default function Carrito({
         <label className="block text-sm font-medium text-slate-600 mb-2">
           Método de Pago
         </label>
-        <div className="grid grid-cols-1 min-[380px]:grid-cols-3 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           {METODOS_PAGO.map((metodo) => {
             const { id, label, Icon: PagoIcon } = metodo;
             return (
@@ -213,7 +213,7 @@ export default function Carrito({
               key={id}
               type="button"
               onClick={() => setMetodoPago(id)}
-              className={`flex min-h-12 flex-row min-[380px]:flex-col items-center justify-center gap-2 min-[380px]:gap-1.5 rounded-xl border py-2.5 sm:py-3 px-2 transition ${
+              className={`flex min-h-12 flex-col items-center justify-center gap-1.5 rounded-xl border py-2.5 sm:py-3 px-2 transition touch-manipulation ${
                 metodoPago === id
                   ? 'bg-emerald-50 border-emerald-400 text-emerald-700'
                   : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -227,9 +227,47 @@ export default function Carrito({
         </div>
       </div>
 
+      {!mostrarVacio && permitirDescuento && subtotalNumerico > 0 && (
+        <div
+          id="carrito-descuentos"
+          className="mt-3 sm:mt-4 space-y-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 sm:p-4"
+        >
+          <h3 className="text-sm font-semibold text-emerald-900">Descuento</h3>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-slate-600">Subtotal</span>
+            <span className="font-semibold text-slate-800">{subtotalFormato}</span>
+          </div>
+          <label className="block text-sm">
+            <span className="block text-slate-600 mb-1.5">Descuento (%)</span>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                inputMode="decimal"
+                value={descuentoPctStr}
+                onChange={(e) => onDescuentoPctChange(e.target.value)}
+                placeholder="0"
+                className="w-full min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-base text-slate-800 focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400"
+              />
+              <span className="text-slate-500 font-semibold shrink-0">%</span>
+            </div>
+          </label>
+          <label className="block text-sm">
+            <span className="block text-slate-600 mb-1.5">Descuento ($)</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={descuentoPesosStr}
+              onChange={(e) => onDescuentoPesosChange(e.target.value)}
+              placeholder="0"
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-base text-slate-800 focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400"
+            />
+          </label>
+        </div>
+      )}
+
       <div className="border-t border-slate-200 my-3 sm:my-4" />
 
-      <div className="min-h-[100px] sm:min-h-[120px] flex flex-col justify-center">
+      <div className="min-h-[80px] sm:min-h-[120px] max-h-[28dvh] sm:max-h-[40dvh] lg:max-h-none overflow-y-auto flex flex-col">
         {mostrarVacio ? (
           <p className="text-slate-400 text-center py-4 sm:py-6 text-sm sm:text-base">Carrito vacío</p>
         ) : (
@@ -352,42 +390,7 @@ export default function Carrito({
         )}
       </div>
 
-      <div className="border-t border-slate-200 my-3 sm:my-4" />
-
-      {!mostrarVacio && permitirDescuento && subtotalNumerico > 0 && (
-        <div className="mb-3 sm:mb-4 space-y-2.5 rounded-xl border border-slate-100 bg-slate-50/80 p-3">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-slate-600">Subtotal</span>
-            <span className="font-semibold text-slate-800">{subtotalFormato}</span>
-          </div>
-          <label className="flex items-center justify-between gap-3 text-sm">
-            <span className="text-slate-600 shrink-0">Descuento (%)</span>
-            <div className="flex items-center gap-1.5">
-              <input
-                type="text"
-                inputMode="decimal"
-                value={descuentoPctStr}
-                onChange={(e) => onDescuentoPctChange(e.target.value)}
-                placeholder="0"
-                className="w-20 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-right text-slate-800 focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400"
-              />
-              <span className="text-slate-500 font-medium">%</span>
-            </div>
-          </label>
-          <label className="flex items-center justify-between gap-3 text-sm">
-            <span className="text-slate-600 shrink-0">Descuento ($)</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              value={descuentoPesosStr}
-              onChange={(e) => onDescuentoPesosChange(e.target.value)}
-              placeholder="0"
-              className="w-28 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-right text-slate-800 focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400"
-            />
-          </label>
-        </div>
-      )}
-
+      <div className="sticky bottom-0 z-10 -mx-4 px-4 pt-3 pb-1 sm:-mx-5 sm:px-5 bg-white border-t border-slate-200 shadow-[0_-8px_24px_rgba(15,23,42,0.06)] lg:static lg:mx-0 lg:px-0 lg:pt-0 lg:pb-0 lg:border-0 lg:shadow-none">
       <div className="flex items-center justify-between mb-3 sm:mb-4">
         <span className="font-bold text-slate-800 text-sm sm:text-base">
           {permitirDescuento && descuentoNumerico > 0 ? 'Total con descuento:' : 'Total:'}
@@ -406,10 +409,11 @@ export default function Carrito({
             totalNumerico,
           })
         }
-        className="w-full rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-3 sm:py-3.5 text-sm sm:text-base transition shadow-sm touch-manipulation"
+        className="w-full rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-3.5 sm:py-3.5 text-sm sm:text-base transition shadow-sm touch-manipulation min-h-[48px]"
       >
         {botonTexto}
       </button>
+      </div>
     </div>
   );
 }
