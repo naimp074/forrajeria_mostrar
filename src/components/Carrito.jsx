@@ -6,6 +6,18 @@ function parsePrecio(val) {
   return 0;
 }
 
+function parsePorcentaje(valor) {
+  const texto = String(valor ?? '').trim();
+  if (!texto) return 0;
+  const limpio = texto.replace(/[^\d,.-]/g, '');
+  const normalizado = limpio.includes(',')
+    ? limpio.replace(/\./g, '').replace(',', '.')
+    : limpio;
+  const n = parseFloat(normalizado);
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(100, Math.max(0, n));
+}
+
 function parseMonto(valor) {
   const texto = String(valor ?? '').trim();
   if (!texto) return 0;
@@ -15,6 +27,14 @@ function parseMonto(valor) {
     : limpio;
   const n = parseFloat(normalizado);
   return Number.isFinite(n) ? Math.max(0, Math.round(n)) : 0;
+}
+
+function pctDesdeDescuento(descuento, subtotal) {
+  if (descuento <= 0 || subtotal <= 0) return '';
+  const pct = (descuento / subtotal) * 100;
+  const redondeado = Math.round(pct * 10) / 10;
+  if (redondeado % 1 === 0) return String(Math.round(redondeado));
+  return String(redondeado).replace('.', ',');
 }
 
 function lineTotal(item) {
@@ -75,37 +95,38 @@ export default function Carrito({
   const [editandoId, setEditandoId] = useState(null);
   const [cantidadEdit, setCantidadEdit] = useState(1);
   const [valorEdicion, setValorEdicion] = useState('');
-  const [descuentoStr, setDescuentoStr] = useState('');
-  const [totalCobrarStr, setTotalCobrarStr] = useState('');
+  const [descuentoPctStr, setDescuentoPctStr] = useState('');
+  const [descuentoPesosStr, setDescuentoPesosStr] = useState('');
   const mostrarVacio = vacio ?? items.length === 0;
 
   const subtotalNumerico =
     items.length > 0 ? items.reduce((sum, i) => sum + lineTotal(i), 0) : 0;
 
   useEffect(() => {
-    setDescuentoStr('');
-    setTotalCobrarStr('');
+    setDescuentoPctStr('');
+    setDescuentoPesosStr('');
   }, [items]);
 
   const descuentoNumerico = permitirDescuento
-    ? Math.min(parseMonto(descuentoStr), subtotalNumerico)
+    ? Math.min(parseMonto(descuentoPesosStr), subtotalNumerico)
     : 0;
   const totalNumerico = Math.max(0, subtotalNumerico - descuentoNumerico);
   const totalFormato = totalNumerico > 0 ? formatPrecio(totalNumerico) : '$0.00';
   const subtotalFormato = subtotalNumerico > 0 ? formatPrecio(subtotalNumerico) : '$0.00';
 
-  const onDescuentoChange = (valor) => {
-    setDescuentoStr(valor);
-    const desc = Math.min(parseMonto(valor), subtotalNumerico);
-    const total = Math.max(0, subtotalNumerico - desc);
-    setTotalCobrarStr(total < subtotalNumerico ? String(total) : '');
+  const onDescuentoPctChange = (valor) => {
+    setDescuentoPctStr(valor);
+    const desc = Math.min(
+      Math.round(subtotalNumerico * parsePorcentaje(valor) / 100),
+      subtotalNumerico,
+    );
+    setDescuentoPesosStr(desc > 0 ? String(desc) : '');
   };
 
-  const onTotalCobrarChange = (valor) => {
-    setTotalCobrarStr(valor);
-    const total = Math.min(parseMonto(valor), subtotalNumerico);
-    const desc = Math.max(0, subtotalNumerico - total);
-    setDescuentoStr(desc > 0 ? String(desc) : '');
+  const onDescuentoPesosChange = (valor) => {
+    setDescuentoPesosStr(valor);
+    const desc = Math.min(parseMonto(valor), subtotalNumerico);
+    setDescuentoPctStr(pctDesdeDescuento(desc, subtotalNumerico));
   };
 
   const iniciarEdicion = (item) => {
@@ -340,24 +361,28 @@ export default function Carrito({
             <span className="font-semibold text-slate-800">{subtotalFormato}</span>
           </div>
           <label className="flex items-center justify-between gap-3 text-sm">
+            <span className="text-slate-600 shrink-0">Descuento (%)</span>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="text"
+                inputMode="decimal"
+                value={descuentoPctStr}
+                onChange={(e) => onDescuentoPctChange(e.target.value)}
+                placeholder="0"
+                className="w-20 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-right text-slate-800 focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400"
+              />
+              <span className="text-slate-500 font-medium">%</span>
+            </div>
+          </label>
+          <label className="flex items-center justify-between gap-3 text-sm">
             <span className="text-slate-600 shrink-0">Descuento ($)</span>
             <input
               type="text"
               inputMode="numeric"
-              value={descuentoStr}
-              onChange={(e) => onDescuentoChange(e.target.value)}
+              value={descuentoPesosStr}
+              onChange={(e) => onDescuentoPesosChange(e.target.value)}
               placeholder="0"
               className="w-28 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-right text-slate-800 focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400"
-            />
-          </label>
-          <label className="flex items-center justify-between gap-3 text-sm">
-            <span className="font-medium text-slate-700 shrink-0">Total a cobrar ($)</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              value={totalCobrarStr || (totalNumerico > 0 ? String(totalNumerico) : '')}
-              onChange={(e) => onTotalCobrarChange(e.target.value)}
-              className="w-28 rounded-lg border border-emerald-200 bg-white px-2.5 py-1.5 text-right font-semibold text-emerald-700 focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400"
             />
           </label>
         </div>
