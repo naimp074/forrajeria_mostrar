@@ -1,9 +1,20 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 function parsePrecio(val) {
   if (typeof val === 'number') return Number.isFinite(val) ? val : 0;
   if (typeof val === 'string') return parseInt(val.replace(/[^\d]/g, ''), 10) || 0;
   return 0;
+}
+
+function parseMonto(valor) {
+  const texto = String(valor ?? '').trim();
+  if (!texto) return 0;
+  const limpio = texto.replace(/[^\d,.-]/g, '');
+  const normalizado = limpio.includes(',')
+    ? limpio.replace(/\./g, '').replace(',', '.')
+    : limpio;
+  const n = parseFloat(normalizado);
+  return Number.isFinite(n) ? Math.max(0, Math.round(n)) : 0;
 }
 
 function lineTotal(item) {
@@ -53,6 +64,7 @@ export default function Carrito({
   vacio,
   titulo = 'Carrito',
   botonTexto = 'Procesar Venta',
+  permitirDescuento = false,
   onProcesarVenta,
   onBorrar,
   onEditarCantidad,
@@ -63,11 +75,38 @@ export default function Carrito({
   const [editandoId, setEditandoId] = useState(null);
   const [cantidadEdit, setCantidadEdit] = useState(1);
   const [valorEdicion, setValorEdicion] = useState('');
+  const [descuentoStr, setDescuentoStr] = useState('');
+  const [totalCobrarStr, setTotalCobrarStr] = useState('');
   const mostrarVacio = vacio ?? items.length === 0;
 
-  const totalNumerico =
+  const subtotalNumerico =
     items.length > 0 ? items.reduce((sum, i) => sum + lineTotal(i), 0) : 0;
+
+  useEffect(() => {
+    setDescuentoStr('');
+    setTotalCobrarStr('');
+  }, [items]);
+
+  const descuentoNumerico = permitirDescuento
+    ? Math.min(parseMonto(descuentoStr), subtotalNumerico)
+    : 0;
+  const totalNumerico = Math.max(0, subtotalNumerico - descuentoNumerico);
   const totalFormato = totalNumerico > 0 ? formatPrecio(totalNumerico) : '$0.00';
+  const subtotalFormato = subtotalNumerico > 0 ? formatPrecio(subtotalNumerico) : '$0.00';
+
+  const onDescuentoChange = (valor) => {
+    setDescuentoStr(valor);
+    const desc = Math.min(parseMonto(valor), subtotalNumerico);
+    const total = Math.max(0, subtotalNumerico - desc);
+    setTotalCobrarStr(total < subtotalNumerico ? String(total) : '');
+  };
+
+  const onTotalCobrarChange = (valor) => {
+    setTotalCobrarStr(valor);
+    const total = Math.min(parseMonto(valor), subtotalNumerico);
+    const desc = Math.max(0, subtotalNumerico - total);
+    setDescuentoStr(desc > 0 ? String(desc) : '');
+  };
 
   const iniciarEdicion = (item) => {
     setEditandoId(item.id);
@@ -294,8 +333,40 @@ export default function Carrito({
 
       <div className="border-t border-slate-200 my-3 sm:my-4" />
 
+      {!mostrarVacio && permitirDescuento && subtotalNumerico > 0 && (
+        <div className="mb-3 sm:mb-4 space-y-2.5 rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-slate-600">Subtotal</span>
+            <span className="font-semibold text-slate-800">{subtotalFormato}</span>
+          </div>
+          <label className="flex items-center justify-between gap-3 text-sm">
+            <span className="text-slate-600 shrink-0">Descuento ($)</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={descuentoStr}
+              onChange={(e) => onDescuentoChange(e.target.value)}
+              placeholder="0"
+              className="w-28 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-right text-slate-800 focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400"
+            />
+          </label>
+          <label className="flex items-center justify-between gap-3 text-sm">
+            <span className="font-medium text-slate-700 shrink-0">Total a cobrar ($)</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={totalCobrarStr || (totalNumerico > 0 ? String(totalNumerico) : '')}
+              onChange={(e) => onTotalCobrarChange(e.target.value)}
+              className="w-28 rounded-lg border border-emerald-200 bg-white px-2.5 py-1.5 text-right font-semibold text-emerald-700 focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400"
+            />
+          </label>
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-3 sm:mb-4">
-        <span className="font-bold text-slate-800 text-sm sm:text-base">Total:</span>
+        <span className="font-bold text-slate-800 text-sm sm:text-base">
+          {permitirDescuento && descuentoNumerico > 0 ? 'Total con descuento:' : 'Total:'}
+        </span>
         <span className="text-lg sm:text-xl font-bold text-emerald-600">{totalFormato}</span>
       </div>
       <button
@@ -305,6 +376,8 @@ export default function Carrito({
             cliente,
             metodoPago,
             items,
+            subtotalNumerico,
+            descuentoNumerico,
             totalNumerico,
           })
         }

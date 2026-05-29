@@ -47,6 +47,37 @@ function formatKgHuman(kg) {
   return `${kgStr} kg`;
 }
 
+function lineTotalItem(item) {
+  if (typeof item.subtotal === 'number' && !Number.isNaN(item.subtotal)) {
+    return item.subtotal;
+  }
+  const c = Number(item.cantidad) || 0;
+  const pu = parsePrecioStr(item.precioUnitario);
+  return c * pu;
+}
+
+function aplicarDescuentoAItems(items, descuento) {
+  if (!descuento || descuento <= 0) return items;
+  const subtotal = items.reduce((sum, item) => sum + lineTotalItem(item), 0);
+  if (subtotal <= 0) return items;
+  const totalFinal = Math.max(0, subtotal - descuento);
+  const factor = totalFinal / subtotal;
+  const ajustados = items.map((item) => ({
+    ...item,
+    subtotal: redondearMonto(lineTotalItem(item) * factor),
+  }));
+  const suma = ajustados.reduce((sum, item) => sum + (Number(item.subtotal) || 0), 0);
+  const diff = totalFinal - suma;
+  if (diff !== 0 && ajustados.length > 0) {
+    const ultimo = ajustados.length - 1;
+    ajustados[ultimo] = {
+      ...ajustados[ultimo],
+      subtotal: redondearMonto((ajustados[ultimo].subtotal || 0) + diff),
+    };
+  }
+  return ajustados;
+}
+
 function redondearMonto(n) {
   return Math.round(n * 100) / 100;
 }
@@ -308,15 +339,25 @@ export default function VentaRapida() {
     );
   };
 
-  const procesarVenta = async ({ cliente, metodoPago, items, totalNumerico } = {}) => {
+  const procesarVenta = async ({
+    cliente,
+    metodoPago,
+    items,
+    descuentoNumerico = 0,
+    totalNumerico,
+  } = {}) => {
     if (carrito.length === 0) return;
-    const ventaItems = items || carrito;
+    const itemsBase = items || carrito;
+    const ventaItems = aplicarDescuentoAItems(itemsBase, descuentoNumerico);
+    const totalFinal =
+      totalNumerico ??
+      ventaItems.reduce((sum, item) => sum + (Number(item.subtotal) || 0), 0);
     try {
       await crearVenta({
         cliente,
         metodoPago,
         items: ventaItems,
-        total: totalNumerico || ventaItems.reduce((sum, item) => sum + (Number(item.subtotal) || 0), 0),
+        total: totalFinal,
       });
       setPorProducto((prev) => {
         const next = { ...prev };
@@ -667,6 +708,7 @@ export default function VentaRapida() {
         <div className="lg:min-h-0 shrink-0 lg:shrink">
           <Carrito
             items={carrito}
+            permitirDescuento
             onProcesarVenta={procesarVenta}
             onBorrar={borrarDelCarrito}
             onEditarCantidad={editarCantidad}
