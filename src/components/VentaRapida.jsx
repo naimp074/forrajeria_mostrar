@@ -12,6 +12,11 @@ import {
   resolverPrecioKgVenta,
 } from '../utils/margenes';
 import { buscarStockProducto } from '../utils/nombreProducto';
+import {
+  extraerKgDelNombre,
+  stockUnidadesADisponibleKg,
+  kgVendidosAUnidadesInventario,
+} from '../utils/preciosKg';
 
 const IconoBuscar = () => (
   <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -86,6 +91,13 @@ function formatDisponible(cantidad, unidad = 'unidades') {
   const n = Number(cantidad) || 0;
   if (unidad === 'kg') return formatKgHuman(n).replace('—', '0 kg');
   return `${n.toLocaleString('es-AR', { maximumFractionDigits: 3 })} ${unidad}`;
+}
+
+function textoDisponibleVenta(disponibleUnidades, unidad, kgPorUnidad) {
+  const base = formatDisponible(disponibleUnidades, unidad);
+  if (unidad === 'kg' || kgPorUnidad <= 0) return base;
+  const kgDisp = stockUnidadesADisponibleKg(disponibleUnidades, unidad, kgPorUnidad);
+  return `${base} · ${formatKgHuman(kgDisp)} suelto`;
 }
 
 function textoEquivalenciaGramos(kg) {
@@ -177,6 +189,12 @@ export default function VentaRapida() {
   const etiquetaUnidad = unidadProducto === 'fardos' ? 'fardo' : unidadProducto === 'unidades' ? 'unidad' : 'bolsa';
   const etiquetaUnidadPlural = unidadProducto === 'fardos' ? 'fardos' : unidadProducto === 'unidades' ? 'unidades' : 'bolsas';
   const disponibleModal = Number(modalProducto?.disponible) || 0;
+  const kgPorUnidadModal = modalProducto
+    ? extraerKgDelNombre(modalProducto.name) || 0
+    : 0;
+  const disponibleKgModal = modalProducto
+    ? stockUnidadesADisponibleKg(disponibleModal, unidadProducto, kgPorUnidadModal)
+    : 0;
   const mostrarVentaPorPeso = ventaPorKg || (precioKg > 0 && unidadProducto !== 'unidades');
 
   const confirmarAlCarrito = () => {
@@ -230,7 +248,7 @@ export default function VentaRapida() {
     if (modalModo === 'kilo') {
       const kg = parseFloat(String(kgInput).replace(',', '.')) || 0;
       if (kg < 0.001 || precioKg <= 0) return;
-      if (disponibleModal > 0 && kg > disponibleModal) return;
+      if (disponibleKgModal > 0 && kg > disponibleKgModal) return;
       const subtotal = redondearMonto(kg * precioKg);
       setCarrito((prev) => [
         ...prev,
@@ -241,9 +259,11 @@ export default function VentaRapida() {
           kg,
           precioKg,
           subtotal,
+          unidadInventario: unidadProducto,
+          kgPorUnidad: kgPorUnidadModal,
           unidadStock: 'kg',
-          stockAntes: disponibleModal,
-          stockDespues: Math.max(0, disponibleModal - kg),
+          stockAntes: disponibleKgModal,
+          stockDespues: Math.max(0, disponibleKgModal - kg),
           detalleTexto: `${formatKgHuman(kg)} × ${formatMoney(precioKg)}/kg`,
         },
       ]);
@@ -258,7 +278,7 @@ export default function VentaRapida() {
         0;
       if (monto <= 0 || precioKg <= 0) return;
       const kg = monto / precioKg;
-      if (disponibleModal > 0 && kg > disponibleModal) return;
+      if (disponibleKgModal > 0 && kg > disponibleKgModal) return;
       setCarrito((prev) => [
         ...prev,
         {
@@ -269,9 +289,11 @@ export default function VentaRapida() {
           precioKg,
           kgPorPesos: kg,
           subtotal: redondearMonto(monto),
+          unidadInventario: unidadProducto,
+          kgPorUnidad: kgPorUnidadModal,
           unidadStock: 'kg',
-          stockAntes: disponibleModal,
-          stockDespues: Math.max(0, disponibleModal - kg),
+          stockAntes: disponibleKgModal,
+          stockDespues: Math.max(0, disponibleKgModal - kg),
           detalleTexto: `${formatMoney(monto)} → ${formatKgHuman(kg)}`,
         },
       ]);
@@ -287,10 +309,12 @@ export default function VentaRapida() {
           const kg = Math.max(0.001, Number(updates.kg));
           const pk = Number(i.precioKg) || 0;
           const subtotal = redondearMonto(kg * pk);
+          const stockAntes = Number(i.stockAntes) || 0;
           return {
             ...i,
             kg,
             subtotal,
+            stockDespues: Math.max(0, stockAntes - kg),
             detalleTexto: `${formatKgHuman(kg)} × ${formatMoney(pk)}/kg`,
           };
         }
@@ -298,11 +322,13 @@ export default function VentaRapida() {
           const monto = Math.max(1, redondearMonto(Number(updates.montoPesos)));
           const pk = Number(i.precioKg) || 0;
           const kg = monto / pk;
+          const stockAntes = Number(i.stockAntes) || 0;
           return {
             ...i,
             montoPesos: monto,
             kgPorPesos: kg,
             subtotal: monto,
+            stockDespues: Math.max(0, stockAntes - kg),
             detalleTexto: `${formatMoney(monto)} → ${formatKgHuman(kg)}`,
           };
         }
@@ -362,7 +388,17 @@ export default function VentaRapida() {
       setPorProducto((prev) => {
         const next = { ...prev };
         ventaItems.forEach((item) => {
-          const vendido = Number(item.cantidad) || Number(item.kg) || Number(item.kgPorPesos) || 0;
+          let vendido = 0;
+          if (item.modoVenta === 'bolsa') {
+            vendido = Number(item.cantidad) || 0;
+          } else {
+            const kg = Number(item.kg) || Number(item.kgPorPesos) || 0;
+            vendido = kgVendidosAUnidadesInventario(
+              kg,
+              item.unidadInventario || 'kg',
+              item.kgPorUnidad || extraerKgDelNombre(item.nombre),
+            );
+          }
           if (!item.nombre || vendido <= 0) return;
           const actual = next[item.nombre] || {
             cantidadComprada: 0,
@@ -395,8 +431,8 @@ export default function VentaRapida() {
   const kgPorPesos = precioKg > 0 && pesosNum > 0 ? pesosNum / precioKg : 0;
 
   const puedeConfirmarBolsa = modalModo === 'bolsa' && cantBolsas >= 1 && (disponibleModal <= 0 || cantBolsas <= disponibleModal);
-  const puedeConfirmarKilo = modalModo === 'kilo' && kgNum >= 0.001 && precioKg > 0 && (disponibleModal <= 0 || kgNum <= disponibleModal);
-  const puedeConfirmarPesos = modalModo === 'pesos' && pesosNum > 0 && precioKg > 0 && (disponibleModal <= 0 || kgPorPesos <= disponibleModal);
+  const puedeConfirmarKilo = modalModo === 'kilo' && kgNum >= 0.001 && precioKg > 0 && (disponibleKgModal <= 0 || kgNum <= disponibleKgModal);
+  const puedeConfirmarPesos = modalModo === 'pesos' && pesosNum > 0 && precioKg > 0 && (disponibleKgModal <= 0 || kgPorPesos <= disponibleKgModal);
   const equivalenciaGramos = textoEquivalenciaGramos(kgNum);
 
   const modalContenido =
@@ -426,7 +462,7 @@ export default function VentaRapida() {
                   : `${formatMoney(precioBolsa)} / ${etiquetaUnidad}${precioKg > 0 && unidadProducto !== 'unidades' ? ` · ${formatMoney(precioKg)}/kg suelto` : ''}`}
               </p>
               <p className="text-xs text-slate-500 mt-1">
-                Disponible: {formatDisponible(disponibleModal, unidadProducto)}
+                Disponible: {textoDisponibleVenta(disponibleModal, unidadProducto, kgPorUnidadModal)}
               </p>
             </div>
             <button
@@ -557,7 +593,7 @@ export default function VentaRapida() {
                   </p>
                 )}
                 <p className="text-xs mt-1 opacity-90">
-                  Quedaría: {formatKgHuman(Math.max(0, disponibleModal - kgNum))}
+                  Quedaría: {formatKgHuman(Math.max(0, disponibleKgModal - kgNum))}
                 </p>
               </div>
               <button
@@ -598,7 +634,7 @@ export default function VentaRapida() {
                 </div>
                 <p className="text-xs mt-2 opacity-90">Cobrás {pesosNum > 0 ? formatMoney(pesosNum) : '—'}</p>
                 <p className="text-xs mt-1 opacity-90">
-                  Quedaría: {formatKgHuman(Math.max(0, disponibleModal - kgPorPesos))}
+                  Quedaría: {formatKgHuman(Math.max(0, disponibleKgModal - kgPorPesos))}
                 </p>
               </div>
               <button

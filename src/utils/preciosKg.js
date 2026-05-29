@@ -16,6 +16,24 @@ export function extraerKgDelNombre(nombre) {
   return parseNumeroFlexible(match[1]);
 }
 
+/** Stock en unidades (bolsas/fardos) → kg disponibles para venta suelta */
+export function stockUnidadesADisponibleKg(disponibleUnidades, unidad, kgPorUnidad) {
+  const n = Number(disponibleUnidades) || 0;
+  if (n <= 0) return 0;
+  if (unidad === 'kg') return n;
+  const kg = Number(kgPorUnidad) || 0;
+  return kg > 0 ? n * kg : n;
+}
+
+/** Kg vendidos sueltos → unidades a descontar del inventario */
+export function kgVendidosAUnidadesInventario(kg, unidadInventario, kgPorUnidad) {
+  const k = Number(kg) || 0;
+  if (k <= 0) return 0;
+  if (unidadInventario === 'kg') return k;
+  const ku = Number(kgPorUnidad) || 0;
+  return ku > 0 ? k / ku : k;
+}
+
 export function calcularPrecioCompraKg(costoUnitario, kgPorUnidad) {
   const costo = Number(costoUnitario) || parseNumeroFlexible(costoUnitario);
   const kg = Number(kgPorUnidad) || parseNumeroFlexible(kgPorUnidad);
