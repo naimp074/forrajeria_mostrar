@@ -9,7 +9,7 @@ export default function DashboardHeader() {
           Panel de inicio
         </h1>
         <p className="text-slate-600 mt-2 max-w-3xl">
-          Resumen del día, ventas, ganancia, fiado y alertas. Accesos rápidos a nueva venta y registro de stock.
+          Resumen del día y totales: ventas, plata para reponer y ganancia. Accesos rápidos a nueva venta y registro de stock.
         </p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full xl:w-auto min-w-0">

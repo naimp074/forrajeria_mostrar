@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useGastos } from '../context/GastosContext';
-import { obtenerResumenReportes } from '../services/supabaseData';
+import { claveDiaActual, claveMesActual, labelMesCompleto, obtenerResumenReportes } from '../services/supabaseData';
 
 function formatMoneda(value) {
   return new Intl.NumberFormat('es-AR', {
@@ -10,63 +10,123 @@ function formatMoneda(value) {
   }).format(value);
 }
 
-function formatFecha(fechaIso) {
-  return new Intl.DateTimeFormat('es-AR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(fechaIso));
+function formatHora(fechaIso) {
+  return new Intl.DateTimeFormat('es-AR', { hour: '2-digit', minute: '2-digit' }).format(new Date(fechaIso));
 }
 
-function BarraProgreso({ label, valor, maximo, extra }) {
-  const porcentaje = maximo > 0 ? Math.round((valor / maximo) * 100) : 0;
+const DIAS_SEM = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
+function labelDiaCorto(clave) {
+  const [anio, mes, dia] = clave.split('-').map(Number);
+  const fecha = new Date(anio, mes - 1, dia);
+  return `${String(dia).padStart(2, '0')}/${String(mes).padStart(2, '0')} · ${DIAS_SEM[fecha.getDay()]}`;
+}
+
+function labelDiaCompleto(clave) {
+  const [anio, mes, dia] = clave.split('-').map(Number);
+  const fecha = new Date(anio, mes - 1, dia);
+  return `${String(dia).padStart(2, '0')}/${String(mes).padStart(2, '0')}/${anio} · ${DIAS_SEM[fecha.getDay()]}`;
+}
+
+const resumenDiaVacio = {
+  ventas: 0,
+  plataParaReponer: 0,
+  ganancia: 0,
+  cantidadVentas: 0,
+  ventasLista: [],
+  productos: [],
+  medios: [],
+};
+
+function construirDiasDelMes(mesClave, porDiaDetalle = {}) {
+  const [anio, mes] = mesClave.split('-').map(Number);
+  const ultimoDia = new Date(anio, mes, 0).getDate();
+  const items = [];
+  for (let dia = 1; dia <= ultimoDia; dia += 1) {
+    const clave = `${anio}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+    const datos = porDiaDetalle[clave] || { ventas: 0, plataParaReponer: 0, ganancia: 0 };
+    items.push({ clave, label: labelDiaCorto(clave), ...datos });
+  }
+  return items;
+}
+
+function TarjetasResumen({ ventas, reponer, ganancia, compacto = false }) {
+  const cls = compacto ? 'p-3' : 'p-4';
+  const valCls = compacto ? 'text-xl' : 'text-2xl';
   return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between text-sm">
-        <span className="text-slate-700 truncate pr-2">{label}</span>
-        <span className="font-semibold text-slate-900 shrink-0">{formatMoneda(valor)}</span>
+    <div className="grid grid-cols-3 gap-2 sm:gap-3">
+      <div className={`rounded-xl bg-slate-50 border border-slate-100 ${cls}`}>
+        <div className="text-[10px] sm:text-xs font-semibold uppercase tracking-wide text-slate-500">Ventas</div>
+        <div className={`${valCls} font-bold text-slate-900 mt-1`}>{formatMoneda(ventas)}</div>
       </div>
-      <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-        <div
-          className="h-full rounded-full bg-emerald-500"
-          style={{ width: `${Math.max(porcentaje, valor > 0 ? 4 : 0)}%` }}
-        />
+      <div className={`rounded-xl bg-amber-50 border border-amber-100 ${cls}`}>
+        <div className="text-[10px] sm:text-xs font-semibold uppercase tracking-wide text-amber-700">Reponer</div>
+        <div className={`${valCls} font-bold text-amber-900 mt-1`}>{formatMoneda(reponer)}</div>
       </div>
-      {extra && <div className="text-xs text-slate-500">{extra}</div>}
+      <div className={`rounded-xl bg-emerald-50 border border-emerald-100 ${cls}`}>
+        <div className="text-[10px] sm:text-xs font-semibold uppercase tracking-wide text-emerald-700">Ganancia</div>
+        <div className={`${valCls} font-bold text-emerald-900 mt-1`}>{formatMoneda(ganancia)}</div>
+      </div>
     </div>
   );
 }
 
-function PanelDatos({ titulo, vacio, children }) {
-  return (
-    <div className="rounded-2xl bg-white border border-slate-200 p-5 min-h-56 flex flex-col">
-      <h3 className="text-lg font-bold text-slate-900">{titulo}</h3>
-      {vacio ? (
-        <div className="mt-6 flex-1 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-slate-500 flex items-center justify-center">
-          Todavía no hay datos para mostrar.
+function FilaPeriodo({ label, ventas, reponer, ganancia, activo, onClick }) {
+  const contenido = (
+    <>
+      <div className="min-w-0">
+        <div className="font-medium text-slate-800 truncate">{label}</div>
+        <div className="text-xs text-slate-500 mt-0.5">
+          Rep. {formatMoneda(reponer)} · Gan. {formatMoneda(ganancia)}
         </div>
-      ) : (
-        <div className="mt-4 space-y-3 flex-1">{children}</div>
-      )}
+      </div>
+      <div className="font-bold text-slate-900 shrink-0">{formatMoneda(ventas)}</div>
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`w-full flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-sm text-left transition ${
+          activo
+            ? 'border-emerald-400 bg-emerald-50 ring-1 ring-emerald-200'
+            : 'border-slate-100 bg-white hover:bg-slate-50'
+        }`}
+      >
+        {contenido}
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2.5 text-sm">
+      {contenido}
     </div>
   );
 }
+
+const PESTANAS = [
+  { id: 'total', label: 'Resumen' },
+  { id: 'mes', label: 'Por mes' },
+  { id: 'dia', label: 'Por día' },
+];
 
 export default function ReportesDashboard() {
   const { totalGastos } = useGastos();
   const [resumen, setResumen] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
+  const [pestana, setPestana] = useState('total');
+  const [mesSeleccionado, setMesSeleccionado] = useState(() => claveMesActual());
+  const [diaSeleccionado, setDiaSeleccionado] = useState(() => claveDiaActual());
 
   const cargarReportes = useCallback(async () => {
     setCargando(true);
     setError('');
     try {
-      const data = await obtenerResumenReportes();
-      setResumen(data);
+      setResumen(await obtenerResumenReportes());
     } catch (err) {
       setError(err.message || 'No se pudieron cargar los reportes.');
       setResumen(null);
@@ -75,191 +135,323 @@ export default function ReportesDashboard() {
     }
   }, []);
 
+  useEffect(() => { cargarReportes(); }, [cargarReportes]);
+
   useEffect(() => {
-    cargarReportes();
-  }, [cargarReportes]);
+    if (!resumen) return;
+    const actual = claveMesActual();
+    const meses = resumen.mesesDisponibles ?? [];
+    if (!meses.some((m) => m.clave === mesSeleccionado) && mesSeleccionado !== actual) {
+      setMesSeleccionado(meses[0]?.clave ?? actual);
+    }
+  }, [resumen, mesSeleccionado]);
+
+  useEffect(() => {
+    if (diaSeleccionado.slice(0, 7) === mesSeleccionado) return;
+    const hoy = claveDiaActual();
+    if (hoy.startsWith(mesSeleccionado)) {
+      setDiaSeleccionado(hoy);
+      return;
+    }
+    const detalle = resumen?.detallePorDia ?? {};
+    const primerDia = Object.keys(detalle)
+      .filter((k) => k.startsWith(mesSeleccionado) && detalle[k]?.ventas > 0)
+      .sort((a, b) => b.localeCompare(a))[0];
+    setDiaSeleccionado(primerDia ?? `${mesSeleccionado}-01`);
+  }, [mesSeleccionado, resumen, diaSeleccionado]);
+
+  const cambiarMes = (mesClave) => {
+    setMesSeleccionado(mesClave);
+    setDiaSeleccionado(claveDiaActual().startsWith(mesClave) ? claveDiaActual() : `${mesClave}-01`);
+  };
+
+  const cambiarFecha = (fecha) => {
+    if (!fecha) return;
+    setDiaSeleccionado(fecha);
+    setMesSeleccionado(fecha.slice(0, 7));
+    setPestana('dia');
+  };
+
+  const irADia = (clave) => {
+    setDiaSeleccionado(clave);
+    setPestana('dia');
+  };
+
+  const opcionesMes = useMemo(() => {
+    const actual = claveMesActual();
+    const map = new Map();
+    (resumen?.mesesDisponibles ?? []).forEach((m) => map.set(m.clave, m.label));
+    if (!map.has(actual)) map.set(actual, labelMesCompleto(actual));
+    if (!map.has(mesSeleccionado)) map.set(mesSeleccionado, labelMesCompleto(mesSeleccionado));
+    return Array.from(map.entries())
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([clave, label]) => ({ clave, label }));
+  }, [resumen, mesSeleccionado]);
+
+  const diasMes = useMemo(
+    () => construirDiasDelMes(mesSeleccionado, resumen?.porDiaDetalle ?? {}),
+    [mesSeleccionado, resumen],
+  );
+
+  const diasConVentas = useMemo(
+    () => diasMes.filter((d) => d.ventas > 0).sort((a, b) => b.clave.localeCompare(a.clave)),
+    [diasMes],
+  );
+
+  const resumenMes = useMemo(() => {
+    const m = resumen?.ventasMensuales?.find((x) => x.clave === mesSeleccionado);
+    if (m) return { ventas: m.ventas, reponer: m.plataParaReponer, ganancia: m.ganancia };
+    return diasMes.reduce(
+      (acc, d) => ({
+        ventas: acc.ventas + d.ventas,
+        reponer: acc.reponer + d.plataParaReponer,
+        ganancia: acc.ganancia + d.ganancia,
+      }),
+      { ventas: 0, reponer: 0, ganancia: 0 },
+    );
+  }, [resumen, mesSeleccionado, diasMes]);
+
+  const detalleDia = resumen?.detallePorDia?.[diaSeleccionado] ?? resumenDiaVacio;
+  const resumenDia = {
+    ventas: detalleDia.ventas ?? 0,
+    reponer: detalleDia.plataParaReponer ?? 0,
+    ganancia: detalleDia.ganancia ?? 0,
+  };
 
   const ventasTotales = resumen?.ventasTotales ?? 0;
+  const plataParaReponer = resumen?.plataParaReponer ?? 0;
   const margenBruto = resumen?.margenBruto ?? 0;
   const margenNeto = margenBruto - totalGastos;
-  const margenPorcentaje = resumen?.margenPorcentaje ?? 0;
   const hayVentas = ventasTotales > 0;
-
-  const maxProducto = resumen?.ventasPorProducto?.[0]?.ventas ?? 0;
-  const maxMedio = resumen?.ventasPorMedioPago?.[0]?.total ?? 0;
-  const maxMes = Math.max(...(resumen?.ventasMensuales?.map((item) => item.ventas) ?? [0]));
-  const maxDia = Math.max(...(resumen?.ventasDiarias?.map((item) => item.ventas) ?? [0]));
-
-  const kpis = [
-    {
-      label: 'Ventas totales',
-      value: formatMoneda(ventasTotales),
-      sub: hayVentas ? `${resumen.cantidadVentas} ventas registradas` : 'Sin ventas registradas',
-    },
-    {
-      label: 'Ventas hoy',
-      value: formatMoneda(resumen?.ventasHoy ?? 0),
-      sub: resumen?.cantidadVentasHoy
-        ? `${resumen.cantidadVentasHoy} venta${resumen.cantidadVentasHoy === 1 ? '' : 's'} hoy`
-        : 'Sin ventas hoy',
-    },
-    {
-      label: 'Margen bruto',
-      value: formatMoneda(margenBruto),
-      sub: hayVentas ? 'Ventas menos costo estimado' : 'Sin ventas registradas',
-    },
-    {
-      label: 'Total gastos',
-      value: formatMoneda(totalGastos),
-      sub: 'Cargados en Gastos',
-    },
-    {
-      label: 'Margen neto',
-      value: formatMoneda(margenNeto),
-      sub: 'Después de gastos',
-    },
-    {
-      label: 'Margen %',
-      value: `${margenPorcentaje}%`,
-      sub: hayVentas ? 'Sobre ventas totales' : 'Sin ventas registradas',
-    },
-  ];
+  const labelMes = opcionesMes.find((m) => m.clave === mesSeleccionado)?.label ?? labelMesCompleto(mesSeleccionado);
 
   if (cargando) {
     return (
-      <div className="rounded-2xl sm:rounded-[28px] bg-slate-100 border border-slate-200 shadow-lg p-8 text-center text-slate-600">
+      <div className="rounded-2xl bg-slate-100 border border-slate-200 p-8 text-center text-slate-600">
         Cargando reportes...
       </div>
     );
   }
 
   return (
-    <div className="rounded-2xl sm:rounded-[28px] bg-slate-100 border border-slate-200 shadow-lg p-4 sm:p-6 space-y-6">
+    <div className="rounded-2xl bg-slate-100 border border-slate-200 shadow-lg p-4 sm:p-5 space-y-4">
       {error && (
-        <div className="rounded-2xl bg-red-50 border border-red-200 p-4 text-red-700 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="rounded-xl bg-red-50 border border-red-200 p-3 text-red-700 flex justify-between gap-3 items-center text-sm">
           <span>{error}</span>
-          <button
-            type="button"
-            onClick={cargarReportes}
-            className="rounded-xl bg-red-600 text-white px-4 py-2 text-sm font-semibold hover:bg-red-700"
-          >
+          <button type="button" onClick={cargarReportes} className="rounded-lg bg-red-600 text-white px-3 py-1.5 text-xs font-semibold">
             Reintentar
           </button>
         </div>
       )}
 
       <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-slate-600">
-          {hayVentas
-            ? 'Datos reales de tus ventas guardadas en Supabase.'
-            : 'Cuando registres ventas, van a aparecer acá automáticamente.'}
-        </p>
+        <div className="flex rounded-xl bg-white border border-slate-200 p-1 gap-0.5">
+          {PESTANAS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setPestana(p.id)}
+              className={`rounded-lg px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold transition ${
+                pestana === p.id ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
         <button
           type="button"
           onClick={cargarReportes}
-          className="rounded-xl bg-white border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 shrink-0"
+          className="rounded-xl bg-white border border-slate-200 px-3 py-2 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-50 shrink-0"
         >
           Actualizar
         </button>
       </div>
 
-      <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-3 sm:gap-4">
-        {kpis.map((item) => (
-          <div key={item.label} className="rounded-2xl bg-white border border-slate-200 shadow-sm p-4">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{item.label}</div>
-            <div className="text-2xl font-bold text-slate-900 mt-2">{item.value}</div>
-            <div className="text-xs text-slate-500 mt-1">{item.sub}</div>
+      {!hayVentas && pestana === 'total' && (
+        <div className="rounded-xl border border-dashed border-slate-200 bg-white p-8 text-center text-slate-500 text-sm">
+          Todavía no hay ventas registradas. Cuando vendas desde Ventas, van a aparecer acá.
+        </div>
+      )}
+
+      {pestana === 'total' && hayVentas && (
+        <div className="space-y-4">
+          <TarjetasResumen ventas={ventasTotales} reponer={plataParaReponer} ganancia={margenBruto} />
+          <div className="rounded-xl bg-white border border-slate-200 p-4 text-sm space-y-2">
+            <div className="flex justify-between"><span className="text-slate-500">Ventas hoy</span><span className="font-semibold">{formatMoneda(resumen?.ventasHoy ?? 0)}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Ganancia hoy</span><span className="font-semibold text-emerald-700">{formatMoneda(resumen?.gananciaHoy ?? 0)}</span></div>
+            <div className="flex justify-between border-t border-slate-100 pt-2"><span className="text-slate-600">Ganancia neta (− gastos)</span><span className={`font-bold ${margenNeto >= 0 ? 'text-emerald-800' : 'text-red-600'}`}>{formatMoneda(margenNeto)}</span></div>
           </div>
-        ))}
-      </section>
+          <details className="rounded-xl bg-white border border-slate-200 overflow-hidden">
+            <summary className="px-4 py-3 text-sm font-semibold text-slate-700 cursor-pointer hover:bg-slate-50">
+              Ver más detalle (semanas, meses, productos)
+            </summary>
+            <div className="px-4 pb-4 space-y-4 border-t border-slate-100 pt-3">
+              {resumen?.ventasSemanales?.some((x) => x.ventas > 0) && (
+                <div>
+                  <h4 className="text-xs font-bold uppercase text-slate-500 mb-2">Últimas semanas</h4>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {resumen.ventasSemanales.filter((x) => x.ventas > 0).map((item) => (
+                      <FilaPeriodo key={item.clave} label={item.label} ventas={item.ventas} reponer={item.plataParaReponer} ganancia={item.ganancia} />
+                    ))}
+                  </div>
+                </div>
+              )}
+              {resumen?.ventasMensuales?.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-bold uppercase text-slate-500 mb-2">Por mes</h4>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {resumen.ventasMensuales.map((item) => (
+                      <FilaPeriodo key={item.clave} label={item.label} ventas={item.ventas} reponer={item.plataParaReponer} ganancia={item.ganancia} />
+                    ))}
+                  </div>
+                </div>
+              )}
+              {resumen?.ventasPorProducto?.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-bold uppercase text-slate-500 mb-2">Top productos</h4>
+                  <div className="space-y-1.5">
+                    {resumen.ventasPorProducto.slice(0, 5).map((item) => (
+                      <div key={item.nombre} className="flex justify-between text-sm py-1">
+                        <span className="text-slate-700 truncate pr-2">{item.nombre}</span>
+                        <span className="font-semibold shrink-0">{formatMoneda(item.ventas)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </details>
+        </div>
+      )}
 
-      <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <PanelDatos titulo="Ventas mensuales" vacio={!resumen?.ventasMensuales?.length}>
-          {resumen?.ventasMensuales?.map((item) => (
-            <BarraProgreso key={item.clave} label={item.label} valor={item.ventas} maximo={maxMes} />
-          ))}
-        </PanelDatos>
-
-        <PanelDatos titulo="Ventas por producto" vacio={!resumen?.ventasPorProducto?.length}>
-          {resumen?.ventasPorProducto?.slice(0, 8).map((item) => (
-            <BarraProgreso
-              key={item.nombre}
-              label={item.nombre}
-              valor={item.ventas}
-              maximo={maxProducto}
-              extra={`${item.unidades} unidades/kg vendidos`}
-            />
-          ))}
-        </PanelDatos>
-
-        <PanelDatos titulo="Medios de pago" vacio={!resumen?.ventasPorMedioPago?.length}>
-          {resumen?.ventasPorMedioPago?.map((item) => (
-            <BarraProgreso
-              key={item.metodo}
-              label={item.label}
-              valor={item.total}
-              maximo={maxMedio}
-              extra={`${item.cantidad} venta${item.cantidad === 1 ? '' : 's'}`}
-            />
-          ))}
-        </PanelDatos>
-      </section>
-
-      <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <PanelDatos titulo="Ventas diarias (últimos 14 días)" vacio={!hayVentas}>
-          {resumen?.ventasDiarias?.map((item) => (
-            <BarraProgreso key={item.clave} label={item.label} valor={item.ventas} maximo={maxDia} />
-          ))}
-        </PanelDatos>
-
-        <PanelDatos titulo="Distribución del margen" vacio={!hayVentas}>
-          <BarraProgreso label="Costo estimado" valor={ventasTotales - margenBruto} maximo={ventasTotales} />
-          <BarraProgreso label="Margen bruto" valor={margenBruto} maximo={ventasTotales} />
-          <BarraProgreso label="Gastos" valor={totalGastos} maximo={ventasTotales} />
-          <BarraProgreso
-            label="Margen neto"
-            valor={Math.max(margenNeto, 0)}
-            maximo={ventasTotales}
-            extra={margenNeto < 0 ? `Pérdida neta: ${formatMoneda(Math.abs(margenNeto))}` : undefined}
-          />
-        </PanelDatos>
-      </section>
-
-      <section className="rounded-2xl bg-white border border-slate-200 p-5">
-        <h3 className="text-lg font-bold text-slate-900">Últimas ventas</h3>
-        {!resumen?.ultimasVentas?.length ? (
-          <div className="mt-6 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-slate-500">
-            Todavía no hay ventas para listar.
-          </div>
-        ) : (
-          <div className="mt-4 overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="text-left text-slate-500 border-b border-slate-200">
-                  <th className="py-3 pr-4 font-semibold">Fecha</th>
-                  <th className="py-3 pr-4 font-semibold">Cliente</th>
-                  <th className="py-3 pr-4 font-semibold">Pago</th>
-                  <th className="py-3 pr-4 font-semibold">Productos</th>
-                  <th className="py-3 font-semibold text-right">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {resumen.ultimasVentas.map((venta) => (
-                  <tr key={venta.id} className="border-b border-slate-100 last:border-0">
-                    <td className="py-3 pr-4 text-slate-700 whitespace-nowrap">{formatFecha(venta.fecha)}</td>
-                    <td className="py-3 pr-4 text-slate-900">{venta.cliente}</td>
-                    <td className="py-3 pr-4 capitalize text-slate-700">{venta.metodoPago}</td>
-                    <td className="py-3 pr-4 text-slate-600">
-                      {venta.lineas.map((linea) => linea.productoNombre).join(', ') || '—'}
-                    </td>
-                    <td className="py-3 text-right font-semibold text-slate-900">{formatMoneda(venta.total)}</td>
-                  </tr>
+      {pestana === 'mes' && (
+        <div className="space-y-4">
+          <label className="block">
+            <span className="text-xs font-semibold uppercase text-slate-500 mb-1 block">Mes</span>
+            <select
+              value={mesSeleccionado}
+              onChange={(e) => cambiarMes(e.target.value)}
+              className="w-full sm:max-w-xs rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
+            >
+              {opcionesMes.map((m) => (
+                <option key={m.clave} value={m.clave}>{m.label}</option>
+              ))}
+            </select>
+          </label>
+          <TarjetasResumen {...resumenMes} compacto />
+          <div>
+            <h4 className="text-sm font-bold text-slate-800 mb-2">
+              Días con ventas — {labelMes}
+              <span className="font-normal text-slate-500 ml-1">({diasConVentas.length})</span>
+            </h4>
+            {diasConVentas.length === 0 ? (
+              <p className="text-sm text-slate-500 rounded-xl border border-dashed border-slate-200 bg-white p-6 text-center">
+                No hubo ventas en este mes.
+              </p>
+            ) : (
+              <div className="space-y-1.5 max-h-[24rem] overflow-y-auto">
+                {diasConVentas.map((dia) => (
+                  <FilaPeriodo
+                    key={dia.clave}
+                    label={dia.label}
+                    ventas={dia.ventas}
+                    reponer={dia.plataParaReponer}
+                    ganancia={dia.ganancia}
+                    activo={dia.clave === diaSeleccionado}
+                    onClick={() => irADia(dia.clave)}
+                  />
                 ))}
-              </tbody>
-            </table>
+              </div>
+            )}
           </div>
-        )}
-      </section>
+        </div>
+      )}
+
+      {pestana === 'dia' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-xs font-semibold uppercase text-slate-500 mb-1 block">Mes</span>
+              <select
+                value={mesSeleccionado}
+                onChange={(e) => cambiarMes(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
+              >
+                {opcionesMes.map((m) => (
+                  <option key={m.clave} value={m.clave}>{m.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-xs font-semibold uppercase text-slate-500 mb-1 block">Fecha</span>
+              <input
+                type="date"
+                value={diaSeleccionado}
+                onChange={(e) => cambiarFecha(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
+              />
+            </label>
+          </div>
+          <p className="text-sm text-slate-600">{labelDiaCompleto(diaSeleccionado)}</p>
+          <TarjetasResumen {...resumenDia} compacto />
+          {detalleDia.ventasLista?.length > 0 ? (
+            <>
+              <div className="rounded-xl bg-white border border-slate-200 overflow-hidden">
+                <div className="px-4 py-2.5 border-b border-slate-100 text-xs font-bold uppercase text-slate-500">
+                  Ventas del día ({detalleDia.cantidadVentas})
+                </div>
+                <div className="divide-y divide-slate-100 max-h-64 overflow-y-auto">
+                  {detalleDia.ventasLista.map((venta) => (
+                    <div key={venta.id} className="px-4 py-3 flex items-start justify-between gap-3 text-sm">
+                      <div className="min-w-0">
+                        <div className="font-medium text-slate-900">{venta.cliente || 'Cliente'}</div>
+                        <div className="text-xs text-slate-500 mt-0.5">
+                          {formatHora(venta.fecha)} · {venta.metodoPago}
+                        </div>
+                        <div className="text-xs text-slate-600 mt-1 truncate">
+                          {venta.lineas?.map((l) => l.productoNombre).filter(Boolean).join(', ') || '—'}
+                        </div>
+                      </div>
+                      <div className="font-bold text-slate-900 shrink-0">{formatMoneda(venta.total)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {(detalleDia.productos?.length > 0 || detalleDia.medios?.length > 0) && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                  {detalleDia.productos?.length > 0 && (
+                    <div className="rounded-xl bg-white border border-slate-200 p-3">
+                      <div className="text-xs font-bold uppercase text-slate-500 mb-2">Productos</div>
+                      {detalleDia.productos.map((p) => (
+                        <div key={p.nombre} className="flex justify-between py-1 gap-2">
+                          <span className="truncate text-slate-700">{p.nombre}</span>
+                          <span className="font-semibold shrink-0">{formatMoneda(p.ventas)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {detalleDia.medios?.length > 0 && (
+                    <div className="rounded-xl bg-white border border-slate-200 p-3">
+                      <div className="text-xs font-bold uppercase text-slate-500 mb-2">Pagos</div>
+                      {detalleDia.medios.map((m) => (
+                        <div key={m.metodo} className="flex justify-between py-1 gap-2">
+                          <span className="text-slate-700">{m.label}</span>
+                          <span className="font-semibold shrink-0">{formatMoneda(m.total)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-slate-500 rounded-xl border border-dashed border-slate-200 bg-white p-6 text-center">
+              No hubo ventas este día.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

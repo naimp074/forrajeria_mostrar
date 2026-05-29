@@ -658,16 +658,64 @@ function claveDia(fechaIso) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+export function claveDiaActual(fecha = new Date()) {
+  return claveDia(typeof fecha === 'string' ? fecha : fecha.toISOString());
+}
+
 const MESES_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+const MESES_LARGOS = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+];
 
 function labelMes(clave) {
   const [anio, mes] = clave.split('-');
   return `${MESES_ES[Number(mes) - 1]} ${anio.slice(2)}`;
 }
 
+export function labelMesCompleto(clave) {
+  const [anio, mes] = clave.split('-');
+  return `${MESES_LARGOS[Number(mes) - 1]} ${anio}`;
+}
+
+export function claveMesActual(fecha = new Date()) {
+  return `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}`;
+}
+
 function labelDia(clave) {
   const [, mes, dia] = clave.split('-');
   return `${dia}/${mes}`;
+}
+
+function lunesDeSemana(fecha = new Date()) {
+  const d = new Date(fecha);
+  const dia = d.getDay();
+  const diff = d.getDate() - dia + (dia === 0 ? -6 : 1);
+  d.setDate(diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function claveSemana(fechaIso) {
+  return claveDia(lunesDeSemana(new Date(fechaIso)).toISOString());
+}
+
+function labelSemana(claveLunes) {
+  const inicio = new Date(claveLunes);
+  const fin = new Date(inicio);
+  fin.setDate(inicio.getDate() + 6);
+  const diaIni = inicio.getDate();
+  const mesIni = MESES_ES[inicio.getMonth()];
+  const diaFin = fin.getDate();
+  const mesFin = MESES_ES[fin.getMonth()];
+  if (mesIni === mesFin) return `${diaIni}-${diaFin} ${mesIni}`;
+  return `${diaIni} ${mesIni} - ${diaFin} ${mesFin}`;
+}
+
+function acumularPeriodo(mapa, clave, ventasDelta, costoDelta) {
+  if (!mapa[clave]) mapa[clave] = { ventas: 0, costo: 0 };
+  mapa[clave].ventas += ventasDelta;
+  mapa[clave].costo += costoDelta;
 }
 
 function esMismaFechaLocal(fechaIso, referencia = new Date()) {
@@ -736,7 +784,11 @@ export async function obtenerResumenReportes() {
   const porMedio = {};
   const conteoMedio = {};
   const porMes = {};
+  const porSemana = {};
   const porDia = {};
+  const ventasPorDiaLista = {};
+  const productosPorDiaMap = {};
+  const mediosPorDiaMap = {};
 
   for (const venta of ventas) {
     const total = venta.total;
@@ -755,10 +807,21 @@ export async function obtenerResumenReportes() {
     conteoMedio[metodo] = (conteoMedio[metodo] || 0) + 1;
 
     const mesKey = claveMes(venta.fecha);
-    porMes[mesKey] = (porMes[mesKey] || 0) + total;
-
+    const semKey = claveSemana(venta.fecha);
     const diaKey = claveDia(venta.fecha);
-    porDia[diaKey] = (porDia[diaKey] || 0) + total;
+    acumularPeriodo(porMes, mesKey, total, 0);
+    acumularPeriodo(porSemana, semKey, total, 0);
+    acumularPeriodo(porDia, diaKey, total, 0);
+
+    if (!ventasPorDiaLista[diaKey]) ventasPorDiaLista[diaKey] = [];
+    ventasPorDiaLista[diaKey].push(venta);
+
+    if (!mediosPorDiaMap[diaKey]) mediosPorDiaMap[diaKey] = {};
+    const medioDia = mediosPorDiaMap[diaKey][metodo] || { total: 0, cantidad: 0 };
+    mediosPorDiaMap[diaKey][metodo] = {
+      total: medioDia.total + total,
+      cantidad: medioDia.cantidad + 1,
+    };
 
     for (const linea of venta.lineas) {
       const costo = calcularCostoLinea(
@@ -774,6 +837,9 @@ export async function obtenerResumenReportes() {
 
       costoTotal += costo;
       if (esHoy) costoHoy += costo;
+      acumularPeriodo(porMes, mesKey, 0, costo);
+      acumularPeriodo(porSemana, semKey, 0, costo);
+      acumularPeriodo(porDia, diaKey, 0, costo);
 
       const nombre = linea.productoNombre;
       if (!porProducto[nombre]) {
@@ -781,6 +847,13 @@ export async function obtenerResumenReportes() {
       }
       porProducto[nombre].ventas += linea.subtotal;
       porProducto[nombre].unidades += linea.kg ?? linea.cantidad ?? 1;
+
+      if (!productosPorDiaMap[diaKey]) productosPorDiaMap[diaKey] = {};
+      if (!productosPorDiaMap[diaKey][nombre]) {
+        productosPorDiaMap[diaKey][nombre] = { nombre, ventas: 0, unidades: 0 };
+      }
+      productosPorDiaMap[diaKey][nombre].ventas += linea.subtotal;
+      productosPorDiaMap[diaKey][nombre].unidades += linea.kg ?? linea.cantidad ?? 1;
     }
   }
 
@@ -807,27 +880,93 @@ export async function obtenerResumenReportes() {
     }))
     .sort((a, b) => b.total - a.total);
 
+  const mapPeriodo = (datos) => ({
+    ventas: datos.ventas,
+    plataParaReponer: datos.costo,
+    ganancia: datos.ventas - datos.costo,
+  });
+
   const ventasMensuales = Object.entries(porMes)
     .sort(([a], [b]) => a.localeCompare(b))
     .slice(-12)
-    .map(([clave, monto]) => ({ clave, label: labelMes(clave), ventas: monto }));
+    .map(([clave, datos]) => ({
+      clave,
+      label: labelMes(clave),
+      ...mapPeriodo(datos),
+    }));
+
+  const lunesActual = lunesDeSemana(new Date());
+  const ventasSemanales = [];
+  for (let i = 7; i >= 0; i -= 1) {
+    const lunes = new Date(lunesActual);
+    lunes.setDate(lunesActual.getDate() - i * 7);
+    const key = claveDia(lunes.toISOString());
+    const datos = porSemana[key] || { ventas: 0, costo: 0 };
+    ventasSemanales.push({
+      clave: key,
+      label: labelSemana(key),
+      ...mapPeriodo(datos),
+    });
+  }
 
   const ventasDiarias = [];
   for (let i = 13; i >= 0; i -= 1) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     const key = claveDia(d.toISOString());
+    const datos = porDia[key] || { ventas: 0, costo: 0 };
     ventasDiarias.push({
       clave: key,
       label: labelDia(key),
-      ventas: porDia[key] || 0,
+      ...mapPeriodo(datos),
     });
   }
+
+  const porDiaDetalle = {};
+  const detallePorDia = {};
+  const clavesDia = new Set([
+    ...Object.keys(porDia),
+    ...Object.keys(ventasPorDiaLista),
+  ]);
+
+  for (const clave of clavesDia) {
+    const datos = porDia[clave] || { ventas: 0, costo: 0 };
+    porDiaDetalle[clave] = mapPeriodo(datos);
+
+    const productosDia = Object.values(productosPorDiaMap[clave] || {})
+      .sort((a, b) => b.ventas - a.ventas);
+    const mediosDia = Object.entries(mediosPorDiaMap[clave] || {})
+      .map(([metodo, info]) => ({
+        metodo,
+        label: labelsMedio[metodo] || metodo,
+        total: info.total,
+        cantidad: info.cantidad,
+      }))
+      .sort((a, b) => b.total - a.total);
+    const ventasLista = (ventasPorDiaLista[clave] || [])
+      .slice()
+      .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+
+    detallePorDia[clave] = {
+      ...mapPeriodo(datos),
+      cantidadVentas: ventasLista.length,
+      ventasLista,
+      productos: productosDia,
+      medios: mediosDia,
+    };
+  }
+
+  const mesesDisponibles = Object.keys(porMes)
+    .sort((a, b) => b.localeCompare(a))
+    .map((clave) => ({ clave, label: labelMesCompleto(clave) }));
 
   return {
     ventasTotales,
     ventasHoy,
     gananciaHoy,
+    plataParaReponerHoy: costoHoy,
+    plataParaReponer: costoTotal,
+    costoTotal,
     margenBruto,
     margenPorcentaje,
     cantidadVentas,
@@ -835,7 +974,11 @@ export async function obtenerResumenReportes() {
     ventasPorProducto,
     ventasPorMedioPago,
     ventasMensuales,
+    ventasSemanales,
     ventasDiarias,
+    porDiaDetalle,
+    detallePorDia,
+    mesesDisponibles,
     ultimasVentas: ventas.slice(0, 15),
   };
 }
