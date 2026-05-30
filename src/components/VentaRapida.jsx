@@ -124,7 +124,7 @@ export default function VentaRapida() {
   const [modalModo, setModalModo] = useState(null);
   const [cantBolsas, setCantBolsas] = useState(1);
   const [kgInput, setKgInput] = useState('');
-  const [pesosInput, setPesosInput] = useState('');
+  const [procesandoVenta, setProcesandoVenta] = useState(false);
 
   const cerrarModal = useCallback(() => {
     setModalProducto(null);
@@ -372,12 +372,13 @@ export default function VentaRapida() {
     descuentoNumerico = 0,
     totalNumerico,
   } = {}) => {
-    if (carrito.length === 0) return;
+    if (carrito.length === 0 || procesandoVenta) return;
     const itemsBase = items || carrito;
     const ventaItems = aplicarDescuentoAItems(itemsBase, descuentoNumerico);
     const totalFinal =
       totalNumerico ??
       ventaItems.reduce((sum, item) => sum + (Number(item.subtotal) || 0), 0);
+    setProcesandoVenta(true);
     try {
       await crearVenta({
         cliente,
@@ -413,13 +414,15 @@ export default function VentaRapida() {
         });
         return next;
       });
+      setCarrito([]);
       setMensaje('Venta registrada en Supabase.');
     } catch (err) {
       console.warn('No se pudo guardar la venta en Supabase.', err);
       setMensaje('No se pudo guardar la venta en Supabase. Revisá que el schema esté aplicado.');
+    } finally {
+      setProcesandoVenta(false);
+      setTimeout(() => setMensaje(null), 3500);
     }
-    setCarrito([]);
-    setTimeout(() => setMensaje(null), 3500);
   };
 
   const kgNum = parseFloat(String(kgInput).replace(',', '.')) || 0;
@@ -745,6 +748,7 @@ export default function VentaRapida() {
           <Carrito
             items={carrito}
             permitirDescuento
+            procesando={procesandoVenta}
             onProcesarVenta={procesarVenta}
             onBorrar={borrarDelCarrito}
             onEditarCantidad={editarCantidad}

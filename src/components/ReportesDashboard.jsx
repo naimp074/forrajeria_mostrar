@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useGastos } from '../context/GastosContext';
-import { claveDiaActual, claveMesActual, labelMesCompleto, obtenerResumenReportes } from '../services/supabaseData';
+import { useProductos } from '../context/ProductosContext';
+import { useStock } from '../context/StockContext';
+import {
+  claveDiaActual,
+  claveMesActual,
+  labelMesCompleto,
+  obtenerResumenReportes,
+  obtenerVentaPorId,
+  actualizarVenta,
+  borrarVenta,
+} from '../services/supabaseData';
+import { revertirStockPorVenta } from '../utils/ventaStock';
 
 function formatMoneda(value) {
   return new Intl.NumberFormat('es-AR', {
@@ -107,6 +118,116 @@ function FilaPeriodo({ label, ventas, reponer, ganancia, activo, onClick }) {
   );
 }
 
+const METODOS_PAGO = [
+  { id: 'efectivo', label: 'Efectivo' },
+  { id: 'tarjeta', label: 'Tarjeta' },
+  { id: 'transfer', label: 'Transfer' },
+];
+
+function FilaVentaDia({ venta, editando, onEditar, onCancelar, onGuardar, onBorrar, guardando, borrando }) {
+  const [cliente, setCliente] = useState(venta.cliente || 'Cliente General');
+  const [metodoPago, setMetodoPago] = useState(venta.metodoPago || 'efectivo');
+  const [total, setTotal] = useState(String(Math.round(venta.total || 0)));
+
+  useEffect(() => {
+    if (editando) {
+      setCliente(venta.cliente || 'Cliente General');
+      setMetodoPago(venta.metodoPago || 'efectivo');
+      setTotal(String(Math.round(venta.total || 0)));
+    }
+  }, [editando, venta]);
+
+  if (editando) {
+    return (
+      <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 space-y-3">
+        <div className="text-xs font-semibold text-slate-500 uppercase">Editar venta · {formatHora(venta.fecha)}</div>
+        <label className="block text-sm">
+          <span className="text-slate-600 mb-1 block">Cliente</span>
+          <input
+            type="text"
+            value={cliente}
+            onChange={(e) => setCliente(e.target.value)}
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-800"
+          />
+        </label>
+        <label className="block text-sm">
+          <span className="text-slate-600 mb-1 block">Método de pago</span>
+          <select
+            value={metodoPago}
+            onChange={(e) => setMetodoPago(e.target.value)}
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-800"
+          >
+            {METODOS_PAGO.map((m) => (
+              <option key={m.id} value={m.id}>{m.label}</option>
+            ))}
+          </select>
+        </label>
+        <label className="block text-sm">
+          <span className="text-slate-600 mb-1 block">Total ($)</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={total}
+            onChange={(e) => setTotal(e.target.value)}
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-800"
+          />
+        </label>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={guardando}
+            onClick={() => onGuardar({ cliente: cliente.trim() || 'Cliente General', metodoPago, total: Number(total.replace(/\./g, '')) || 0 })}
+            className="rounded-lg bg-emerald-600 text-white px-3 py-2 text-sm font-semibold disabled:opacity-60"
+          >
+            {guardando ? 'Guardando...' : 'Guardar'}
+          </button>
+          <button
+            type="button"
+            disabled={guardando}
+            onClick={onCancelar}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600"
+          >
+            Cancelar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-4 py-3 flex items-start justify-between gap-3 text-sm">
+      <div className="min-w-0 flex-1">
+        <div className="font-medium text-slate-900">{venta.cliente || 'Cliente'}</div>
+        <div className="text-xs text-slate-500 mt-0.5">
+          {formatHora(venta.fecha)} · {METODOS_PAGO.find((m) => m.id === venta.metodoPago)?.label || venta.metodoPago}
+        </div>
+        <div className="text-xs text-slate-600 mt-1 truncate">
+          {venta.lineas?.map((l) => l.productoNombre).filter(Boolean).join(', ') || '—'}
+        </div>
+        <div className="flex flex-wrap gap-2 mt-2">
+          <button
+            type="button"
+            disabled={borrando || guardando}
+            onClick={() => onEditar(venta.id)}
+            className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+          >
+            Editar
+          </button>
+          <button
+            type="button"
+            disabled={borrando || guardando}
+            onClick={() => onBorrar(venta)}
+            className="rounded-lg border border-red-200 bg-white px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+          >
+            {borrando ? 'Borrando...' : 'Borrar'}
+          </button>
+        </div>
+      </div>
+      <div className="font-bold text-slate-900 shrink-0">{formatMoneda(venta.total)}</div>
+    </div>
+  );
+}
+
 const PESTANAS = [
   { id: 'total', label: 'Resumen' },
   { id: 'mes', label: 'Por mes' },
@@ -115,12 +236,24 @@ const PESTANAS = [
 
 export default function ReportesDashboard() {
   const { totalGastos } = useGastos();
+  const { productos } = useProductos();
+  const { setPorProducto } = useStock();
   const [resumen, setResumen] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
   const [pestana, setPestana] = useState('total');
   const [mesSeleccionado, setMesSeleccionado] = useState(() => claveMesActual());
   const [diaSeleccionado, setDiaSeleccionado] = useState(() => claveDiaActual());
+  const [ventaEditandoId, setVentaEditandoId] = useState(null);
+  const [guardandoVentaId, setGuardandoVentaId] = useState(null);
+  const [borrandoVentaId, setBorrandoVentaId] = useState(null);
+  const [accionMensaje, setAccionMensaje] = useState('');
+
+  const productosPorNombre = useMemo(() => {
+    const map = {};
+    for (const p of productos) map[p.name.toLowerCase()] = p;
+    return map;
+  }, [productos]);
 
   const cargarReportes = useCallback(async () => {
     setCargando(true);
@@ -175,6 +308,44 @@ export default function ReportesDashboard() {
   const irADia = (clave) => {
     setDiaSeleccionado(clave);
     setPestana('dia');
+  };
+
+  const handleGuardarVenta = async (ventaId, cambios) => {
+    setGuardandoVentaId(ventaId);
+    setAccionMensaje('');
+    try {
+      await actualizarVenta(ventaId, cambios);
+      setVentaEditandoId(null);
+      setAccionMensaje('Venta actualizada.');
+      await cargarReportes();
+    } catch (err) {
+      setAccionMensaje(err.message || 'No se pudo actualizar la venta.');
+    } finally {
+      setGuardandoVentaId(null);
+      setTimeout(() => setAccionMensaje(''), 4000);
+    }
+  };
+
+  const handleBorrarVenta = async (ventaResumen) => {
+    const ok = window.confirm(
+      `¿Borrar esta venta de ${formatMoneda(ventaResumen.total)} (${formatHora(ventaResumen.fecha)})?\n\nSe devuelve el stock de los productos y se actualizan los reportes.`,
+    );
+    if (!ok) return;
+    setBorrandoVentaId(ventaResumen.id);
+    setAccionMensaje('');
+    try {
+      const venta = await obtenerVentaPorId(ventaResumen.id);
+      await borrarVenta(ventaResumen.id);
+      setPorProducto((prev) => revertirStockPorVenta(venta, productosPorNombre, prev));
+      if (ventaEditandoId === ventaResumen.id) setVentaEditandoId(null);
+      setAccionMensaje('Venta borrada.');
+      await cargarReportes();
+    } catch (err) {
+      setAccionMensaje(err.message || 'No se pudo borrar la venta.');
+    } finally {
+      setBorrandoVentaId(null);
+      setTimeout(() => setAccionMensaje(''), 4000);
+    }
   };
 
   const opcionesMes = useMemo(() => {
@@ -241,6 +412,12 @@ export default function ReportesDashboard() {
           <button type="button" onClick={cargarReportes} className="rounded-lg bg-red-600 text-white px-3 py-1.5 text-xs font-semibold">
             Reintentar
           </button>
+        </div>
+      )}
+
+      {accionMensaje && (
+        <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-emerald-800 text-sm font-medium">
+          {accionMensaje}
         </div>
       )}
 
@@ -401,20 +578,19 @@ export default function ReportesDashboard() {
                 <div className="px-4 py-2.5 border-b border-slate-100 text-xs font-bold uppercase text-slate-500">
                   Ventas del día ({detalleDia.cantidadVentas})
                 </div>
-                <div className="divide-y divide-slate-100 max-h-64 overflow-y-auto">
+                <div className="divide-y divide-slate-100 max-h-96 overflow-y-auto">
                   {detalleDia.ventasLista.map((venta) => (
-                    <div key={venta.id} className="px-4 py-3 flex items-start justify-between gap-3 text-sm">
-                      <div className="min-w-0">
-                        <div className="font-medium text-slate-900">{venta.cliente || 'Cliente'}</div>
-                        <div className="text-xs text-slate-500 mt-0.5">
-                          {formatHora(venta.fecha)} · {venta.metodoPago}
-                        </div>
-                        <div className="text-xs text-slate-600 mt-1 truncate">
-                          {venta.lineas?.map((l) => l.productoNombre).filter(Boolean).join(', ') || '—'}
-                        </div>
-                      </div>
-                      <div className="font-bold text-slate-900 shrink-0">{formatMoneda(venta.total)}</div>
-                    </div>
+                    <FilaVentaDia
+                      key={venta.id}
+                      venta={venta}
+                      editando={ventaEditandoId === venta.id}
+                      guardando={guardandoVentaId === venta.id}
+                      borrando={borrandoVentaId === venta.id}
+                      onEditar={setVentaEditandoId}
+                      onCancelar={() => setVentaEditandoId(null)}
+                      onGuardar={(cambios) => handleGuardarVenta(venta.id, cambios)}
+                      onBorrar={handleBorrarVenta}
+                    />
                   ))}
                 </div>
               </div>

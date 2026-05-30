@@ -1053,3 +1053,36 @@ export async function crearVenta(venta) {
 
   return data.id;
 }
+
+export async function obtenerVentaPorId(id) {
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from('ventas')
+    .select('*, venta_lineas(*)')
+    .eq('id', id)
+    .single();
+  if (error) throw error;
+  return mapVenta(data);
+}
+
+export async function actualizarVenta(id, cambios) {
+  const client = requireSupabase();
+  const payload = {};
+  if (cambios.cliente != null) payload.cliente_nombre = cambios.cliente;
+  if (cambios.metodoPago != null) payload.metodo_pago = cambios.metodoPago;
+  if (cambios.total != null) payload.total = Number(cambios.total) || 0;
+  const { data, error } = await client
+    .from('ventas')
+    .update(payload)
+    .eq('id', id)
+    .select('*, venta_lineas(*)')
+    .single();
+  if (error) throw error;
+  return mapVenta(data);
+}
+
+export async function borrarVenta(id) {
+  const client = requireSupabase();
+  const { error } = await client.from('ventas').delete().eq('id', id);
+  if (error) throw error;
+}

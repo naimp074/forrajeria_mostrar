@@ -85,6 +85,7 @@ export default function Carrito({
   titulo = 'Carrito',
   botonTexto = 'Procesar Venta',
   permitirDescuento = false,
+  procesando = false,
   onProcesarVenta,
   onBorrar,
   onEditarCantidad,
@@ -399,6 +400,7 @@ export default function Carrito({
       </div>
       <button
         type="button"
+        disabled={procesando || mostrarVacio}
         onClick={() =>
           onProcesarVenta?.({
             cliente,
@@ -409,9 +411,9 @@ export default function Carrito({
             totalNumerico,
           })
         }
-        className="w-full rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-3.5 sm:py-3.5 text-sm sm:text-base transition shadow-sm touch-manipulation min-h-[48px]"
+        className="w-full rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-3.5 sm:py-3.5 text-sm sm:text-base transition shadow-sm touch-manipulation min-h-[48px] disabled:opacity-60 disabled:pointer-events-none"
       >
-        {botonTexto}
+        {procesando ? 'Procesando...' : botonTexto}
       </button>
       </div>
     </div>
