@@ -124,6 +124,7 @@ export default function VentaRapida() {
   const [modalModo, setModalModo] = useState(null);
   const [cantBolsas, setCantBolsas] = useState(1);
   const [kgInput, setKgInput] = useState('');
+  const [pesosInput, setPesosInput] = useState('');
   const [procesandoVenta, setProcesandoVenta] = useState(false);
 
   const cerrarModal = useCallback(() => {
