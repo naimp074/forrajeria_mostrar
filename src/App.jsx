@@ -14,6 +14,7 @@ const Presupuestos = lazy(() => import('./pages/Presupuestos'));
 const Caja = lazy(() => import('./pages/Caja'));
 const Stock = lazy(() => import('./pages/Stock'));
 const Productos = lazy(() => import('./pages/Productos'));
+const Pedir = lazy(() => import('./pages/Pedir'));
 const Clientes = lazy(() => import('./pages/Clientes'));
 const Proveedores = lazy(() => import('./pages/Proveedores'));
 const Reportes = lazy(() => import('./pages/Reportes'));
@@ -43,38 +44,39 @@ export default function App() {
   return (
     <AuthProvider>
       <GastosProvider>
-        <ProductosProvider>
-          <StockProvider>
-            <BrowserRouter>
-              <Suspense fallback={<PantallaCarga />}>
-                <Routes>
-                  <Route path="/login" element={<Login />} />
-                  <Route
-                    path="/"
-                    element={
-                      <RutaProtegida>
+        <BrowserRouter>
+          <Suspense fallback={<PantallaCarga />}>
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route path="/pedir" element={<Pedir />} />
+              <Route
+                path="/"
+                element={
+                  <RutaProtegida>
+                    <ProductosProvider>
+                      <StockProvider>
                         <Layout />
-                      </RutaProtegida>
-                    }
-                  >
-                    <Route index element={<Dashboard />} />
-                    <Route path="ventas" element={<Ventas />} />
-                    <Route path="presupuestos" element={<Presupuestos />} />
-                    <Route path="caja" element={<Caja />} />
-                    <Route path="stock" element={<Stock />} />
-                    <Route path="productos" element={<Productos />} />
-                    <Route path="clientes" element={<Clientes />} />
-                    <Route path="proveedores" element={<Proveedores />} />
-                    <Route path="reportes" element={<Reportes />} />
-                    <Route path="gastos" element={<Gastos />} />
-                    <Route path="configuracion" element={<Configuracion />} />
-                    <Route path="*" element={<Navigate to="/" replace />} />
-                  </Route>
-                </Routes>
-              </Suspense>
-            </BrowserRouter>
-          </StockProvider>
-        </ProductosProvider>
+                      </StockProvider>
+                    </ProductosProvider>
+                  </RutaProtegida>
+                }
+              >
+                <Route index element={<Dashboard />} />
+                <Route path="ventas" element={<Ventas />} />
+                <Route path="presupuestos" element={<Presupuestos />} />
+                <Route path="caja" element={<Caja />} />
+                <Route path="stock" element={<Stock />} />
+                <Route path="productos" element={<Productos />} />
+                <Route path="clientes" element={<Clientes />} />
+                <Route path="proveedores" element={<Proveedores />} />
+                <Route path="reportes" element={<Reportes />} />
+                <Route path="gastos" element={<Gastos />} />
+                <Route path="configuracion" element={<Configuracion />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Route>
+            </Routes>
+          </Suspense>
+        </BrowserRouter>
       </GastosProvider>
     </AuthProvider>
   );

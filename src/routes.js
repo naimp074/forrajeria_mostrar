@@ -9,6 +9,7 @@ export const ROUTES = {
   caja: '/caja',
   stock: '/stock',
   productos: '/productos',
+  pedir: '/pedir',
   clientes: '/clientes',
   proveedores: '/proveedores',
   reportes: '/reportes',

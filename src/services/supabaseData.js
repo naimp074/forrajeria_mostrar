@@ -1,6 +1,7 @@
 import { supabase } from '../supabaseClient';
 import { extraerKgDelNombre } from '../utils/preciosKg';
 import {
+  enriquecerProductoConMargenes,
   extraerMargenesDeObservacion,
   limpiarObservacionParaMostrar,
   observacionConMargenes,
@@ -303,6 +304,73 @@ export async function listarProductos() {
   return (data || []).map(mapProducto);
 }
 
+function mapCatalogoPublicoRow(row) {
+  const producto = mapProducto({
+    id: row.id,
+    nombre: row.nombre,
+    precio_unidad: row.precio_unidad,
+    precio_kg: row.precio_kg,
+    unidad_default: row.unidad_default,
+    margen_bolsa: row.margen_bolsa,
+    margen_kg: row.margen_kg,
+    observacion: row.observacion,
+    precio_compra_ref: row.precio_compra_ref,
+    activo: true,
+    favorito: false,
+    proveedor_nombre: '',
+    proveedor_telefono: '',
+  });
+  const precioCompra =
+    Number(row.stock_precio_compra) ||
+    Number(row.precio_compra_ref) ||
+    Number(producto.precioCompra) ||
+    0;
+  const kgPorUnidad = extraerKgDelNombre(row.nombre);
+  const enriquecido = enriquecerProductoConMargenes(producto, precioCompra, {
+    kgPorUnidad,
+    precioVentaStock: Number(row.stock_precio_venta) || 0,
+    precioKgStock: Number(row.precio_kg) || 0,
+  });
+  return {
+    id: row.id,
+    name: row.nombre,
+    price: enriquecido.price,
+    precioKg: enriquecido.precioKg,
+    unidad: producto.unidad,
+    kgPorUnidad,
+  };
+}
+
+/** Catálogo para /pedir (sin login). Usa RPC listar_catalogo_publico en Supabase. */
+export async function listarCatalogoPublico() {
+  const client = requireSupabase();
+
+  const rpc = await client.rpc('listar_catalogo_publico');
+  if (!rpc.error) {
+    return (rpc.data || []).map(mapCatalogoPublicoRow);
+  }
+
+  const view = await client
+    .from('catalogo_publico')
+    .select('*')
+    .order('nombre', { ascending: true });
+  if (!view.error) {
+    return (view.data || []).map((row) =>
+      mapCatalogoPublicoRow({
+        ...row,
+        stock_precio_compra: 0,
+        stock_precio_venta: 0,
+        margen_bolsa: null,
+        margen_kg: null,
+        observacion: null,
+        precio_compra_ref: 0,
+      }),
+    );
+  }
+
+  throw rpc.error || view.error || new Error('No se pudo cargar el catálogo.');
+}
+
 export async function existeProductoConNombre(nombre, { excluirId } = {}) {
   const client = requireSupabase();
   const normalizado = normalizarNombreProducto(nombre);
@@ -405,6 +473,20 @@ export async function crearPedidoCliente(pedido) {
     .single();
   if (error) throw error;
   return mapPedidoCliente(data);
+}
+
+export async function crearPedidosCliente(pedidos) {
+  if (!pedidos?.length) return [];
+  const client = requireSupabase();
+  const hoy = new Date().toISOString().slice(0, 10);
+  const rows = pedidos.map((pedido) => ({
+    producto_solicitado: pedido.producto,
+    cliente_nombre: pedido.cliente || 'Cliente',
+    fecha: pedido.fecha || hoy,
+  }));
+  const { data, error } = await client.from('pedidos_clientes').insert(rows).select('*');
+  if (error) throw error;
+  return (data || []).map(mapPedidoCliente);
 }
 
 export async function listarGastos() {
