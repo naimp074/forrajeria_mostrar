@@ -838,6 +838,102 @@ function acumularPeriodo(mapa, clave, ventasDelta, costoDelta) {
   mapa[clave].costo += costoDelta;
 }
 
+function acumularProductoPeriodo(mapa, nombre, ventaFecha, ventasDelta, costoDelta, unidadesDelta) {
+  if (!nombre) return;
+  if (!mapa[nombre]) {
+    mapa[nombre] = { nombre, ventas: 0, costo: 0, ganancia: 0, unidades: 0, ultimaVenta: null };
+  }
+  mapa[nombre].ventas += ventasDelta;
+  mapa[nombre].costo += costoDelta;
+  mapa[nombre].ganancia = mapa[nombre].ventas - mapa[nombre].costo;
+  mapa[nombre].unidades += unidadesDelta;
+  if (!mapa[nombre].ultimaVenta || new Date(ventaFecha) > new Date(mapa[nombre].ultimaVenta)) {
+    mapa[nombre].ultimaVenta = ventaFecha;
+  }
+}
+
+function prepararMetricasProducto(mapa) {
+  return Object.values(mapa || {}).map((item) => {
+    const ventas = Number(item.ventas) || 0;
+    const costo = Number(item.costo) || 0;
+    const ganancia = ventas - costo;
+    return {
+      ...item,
+      ventas,
+      costo,
+      ganancia,
+      unidades: Number(item.unidades) || 0,
+      margenPorcentaje: ventas > 0 ? (ganancia / ventas) * 100 : null,
+    };
+  });
+}
+
+function finDeMes(clave) {
+  const [anio, mes] = clave.split('-').map(Number);
+  const d = new Date(anio, mes, 0);
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
+function fechaReferenciaPeriodo({ diaClave, mesClave } = {}) {
+  const ahora = new Date();
+  if (diaClave) {
+    const [anio, mes, dia] = diaClave.split('-').map(Number);
+    const fecha = new Date(anio, mes - 1, dia);
+    fecha.setHours(23, 59, 59, 999);
+    return fecha > ahora ? ahora : fecha;
+  }
+  if (mesClave) {
+    const fecha = finDeMes(mesClave);
+    return fecha > ahora ? ahora : fecha;
+  }
+  return ahora;
+}
+
+function diasEntre(fechaDesdeIso, fechaHasta) {
+  if (!fechaDesdeIso) return null;
+  const desde = new Date(fechaDesdeIso);
+  if (Number.isNaN(desde.getTime())) return null;
+  return Math.max(0, Math.floor((fechaHasta - desde) / 86400000));
+}
+
+function productoParado(producto, ultimaVenta, referencia) {
+  const diasSinVenta = diasEntre(ultimaVenta, referencia);
+  if (diasSinVenta == null) return { nombre: producto.name, diasSinVenta: null, ultimaVenta: null };
+  if (diasSinVenta < 30) return null;
+  return { nombre: producto.name, diasSinVenta, ultimaVenta };
+}
+
+function resumenAccionable({ metricas = [], productos = [], ultimaVentaPorProducto = {}, ventasPorDia = [], referencia = new Date() }) {
+  const vendidos = metricas.filter((item) => item.ventas > 0);
+  const conCosto = vendidos.filter((item) => item.costo > 0);
+  const ordenarDesc = (campo) => [...vendidos].sort((a, b) => (b[campo] || 0) - (a[campo] || 0))[0] || null;
+  const margenBajo = conCosto
+    .filter((item) => item.margenPorcentaje != null)
+    .sort((a, b) => a.margenPorcentaje - b.margenPorcentaje)[0] || null;
+  const diaMayorVenta = [...ventasPorDia]
+    .filter((dia) => (Number(dia.ventas) || 0) > 0)
+    .sort((a, b) => b.ventas - a.ventas)[0] || null;
+  const productosParados = productos
+    .map((producto) => productoParado(producto, ultimaVentaPorProducto[producto.name], referencia))
+    .filter(Boolean)
+    .sort((a, b) => {
+      if (a.diasSinVenta == null && b.diasSinVenta == null) return a.nombre.localeCompare(b.nombre, 'es');
+      if (a.diasSinVenta == null) return -1;
+      if (b.diasSinVenta == null) return 1;
+      return b.diasSinVenta - a.diasSinVenta;
+    })
+    .slice(0, 5);
+
+  return {
+    productoMasRentable: ordenarDesc('ganancia'),
+    productoMasVendido: ordenarDesc('unidades'),
+    productoMargenBajo: margenBajo,
+    diaMayorVenta,
+    productosParados,
+  };
+}
+
 function esMismaFechaLocal(fechaIso, referencia = new Date()) {
   const d = new Date(fechaIso);
   return (
@@ -906,9 +1002,11 @@ export async function obtenerResumenReportes() {
   const porMes = {};
   const porSemana = {};
   const porDia = {};
+  const productosPorMesMap = {};
   const ventasPorDiaLista = {};
   const productosPorDiaMap = {};
   const mediosPorDiaMap = {};
+  const ultimaVentaPorProducto = {};
 
   for (const venta of ventas) {
     const total = venta.total;
@@ -962,18 +1060,17 @@ export async function obtenerResumenReportes() {
       acumularPeriodo(porDia, diaKey, 0, costo);
 
       const nombre = linea.productoNombre;
-      if (!porProducto[nombre]) {
-        porProducto[nombre] = { nombre, ventas: 0, unidades: 0 };
+      const unidades = linea.kg ?? linea.cantidad ?? 1;
+      acumularProductoPeriodo(porProducto, nombre, venta.fecha, linea.subtotal, costo, unidades);
+      if (!ultimaVentaPorProducto[nombre] || new Date(venta.fecha) > new Date(ultimaVentaPorProducto[nombre])) {
+        ultimaVentaPorProducto[nombre] = venta.fecha;
       }
-      porProducto[nombre].ventas += linea.subtotal;
-      porProducto[nombre].unidades += linea.kg ?? linea.cantidad ?? 1;
+
+      if (!productosPorMesMap[mesKey]) productosPorMesMap[mesKey] = {};
+      acumularProductoPeriodo(productosPorMesMap[mesKey], nombre, venta.fecha, linea.subtotal, costo, unidades);
 
       if (!productosPorDiaMap[diaKey]) productosPorDiaMap[diaKey] = {};
-      if (!productosPorDiaMap[diaKey][nombre]) {
-        productosPorDiaMap[diaKey][nombre] = { nombre, ventas: 0, unidades: 0 };
-      }
-      productosPorDiaMap[diaKey][nombre].ventas += linea.subtotal;
-      productosPorDiaMap[diaKey][nombre].unidades += linea.kg ?? linea.cantidad ?? 1;
+      acumularProductoPeriodo(productosPorDiaMap[diaKey], nombre, venta.fecha, linea.subtotal, costo, unidades);
     }
   }
 
@@ -989,7 +1086,7 @@ export async function obtenerResumenReportes() {
     transfer: 'Transferencia',
   };
 
-  const ventasPorProducto = Object.values(porProducto).sort((a, b) => b.ventas - a.ventas);
+  const ventasPorProducto = prepararMetricasProducto(porProducto).sort((a, b) => b.ventas - a.ventas);
   const ventasPorMedioPago = Object.entries(porMedio)
     .filter(([, monto]) => monto > 0)
     .map(([metodo, monto]) => ({
@@ -1042,6 +1139,30 @@ export async function obtenerResumenReportes() {
     });
   }
 
+  const ventasPorMesCompleto = Object.entries(porDia)
+    .reduce((acc, [diaClave, datos]) => {
+      const mesClave = diaClave.slice(0, 7);
+      if (!acc[mesClave]) acc[mesClave] = [];
+      acc[mesClave].push({
+        clave: diaClave,
+        label: labelDia(diaClave),
+        ...mapPeriodo(datos),
+      });
+      return acc;
+    }, {});
+
+  const accionablePorMes = {};
+  Object.keys(porMes).forEach((mesClave) => {
+    const referencia = fechaReferenciaPeriodo({ mesClave });
+    accionablePorMes[mesClave] = resumenAccionable({
+      metricas: prepararMetricasProducto(productosPorMesMap[mesClave] || {}),
+      productos,
+      ultimaVentaPorProducto,
+      ventasPorDia: ventasPorMesCompleto[mesClave] || [],
+      referencia,
+    });
+  });
+
   const porDiaDetalle = {};
   const detallePorDia = {};
   const clavesDia = new Set([
@@ -1053,7 +1174,7 @@ export async function obtenerResumenReportes() {
     const datos = porDia[clave] || { ventas: 0, costo: 0 };
     porDiaDetalle[clave] = mapPeriodo(datos);
 
-    const productosDia = Object.values(productosPorDiaMap[clave] || {})
+    const productosDia = prepararMetricasProducto(productosPorDiaMap[clave] || {})
       .sort((a, b) => b.ventas - a.ventas);
     const mediosDia = Object.entries(mediosPorDiaMap[clave] || {})
       .map(([metodo, info]) => ({
@@ -1073,8 +1194,27 @@ export async function obtenerResumenReportes() {
       ventasLista,
       productos: productosDia,
       medios: mediosDia,
+      accionable: resumenAccionable({
+        metricas: productosDia,
+        productos,
+        ultimaVentaPorProducto,
+        ventasPorDia: [{ clave, label: labelDia(clave), ...mapPeriodo(datos) }],
+        referencia: fechaReferenciaPeriodo({ diaClave: clave }),
+      }),
     };
   }
+
+  const accionableTotal = resumenAccionable({
+    metricas: ventasPorProducto,
+    productos,
+    ultimaVentaPorProducto,
+    ventasPorDia: Object.entries(porDia).map(([clave, datos]) => ({
+      clave,
+      label: labelDia(clave),
+      ...mapPeriodo(datos),
+    })),
+    referencia: new Date(),
+  });
 
   const mesesDisponibles = Object.keys(porMes)
     .sort((a, b) => b.localeCompare(a))
@@ -1098,6 +1238,8 @@ export async function obtenerResumenReportes() {
     ventasDiarias,
     porDiaDetalle,
     detallePorDia,
+    accionableTotal,
+    accionablePorMes,
     mesesDisponibles,
     ultimasVentas: ventas.slice(0, 15),
   };

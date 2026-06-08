@@ -13,6 +13,7 @@ import {
   extraerKgDelNombre,
   calcularPrecioCompraKg,
   calcularPrecioVentaKg,
+  parseNumeroFlexible,
 } from '../utils/preciosKg';
 import {
   MARGEN_DEFAULT,
@@ -28,13 +29,7 @@ function formatMoneda(n) {
 }
 
 function parseNumero(valor) {
-  const texto = String(valor ?? '').trim();
-  if (!texto) return 0;
-  const limpio = texto.replace(/[^\d,.-]/g, '');
-  const normalizado = limpio.includes(',')
-    ? limpio.replace(/\./g, '').replace(',', '.')
-    : limpio;
-  return parseFloat(normalizado) || 0;
+  return parseNumeroFlexible(valor);
 }
 
 function etiquetaVentaUnidad(unidad) {
@@ -387,7 +382,7 @@ export default function Productos() {
 
       const cantidad = parseNumero(formProducto.cantidad);
       if (!editandoProducto && cantidad <= 0) {
-        setProductoError('La cantidad inicial debe ser mayor a 0.');
+        setProductoError('La cantidad debe ser mayor a 0. Podés usar 0,5 para medio kilo (500 g).');
         return;
       }
 
@@ -816,6 +811,7 @@ export default function Productos() {
         )}
         {mostrarFormProducto && (
           <form
+            noValidate
             onSubmit={guardarProductoEditado}
             className="mb-6 rounded-3xl border border-emerald-200 bg-white p-4 sm:p-5 shadow-sm"
           >
@@ -866,13 +862,12 @@ export default function Productos() {
                   {editandoProducto ? 'Stock disponible (opcional)' : (esUnidadPieza ? 'Cantidad en stock' : 'Cantidad comprada')}
                 </span>
                 <input
-                  type="number"
-                  min="0"
-                  step="any"
+                  type="text"
                   inputMode="decimal"
+                  autoComplete="off"
                   value={formProducto.cantidad}
                   onChange={(e) => setFormProducto((prev) => ({ ...prev, cantidad: e.target.value }))}
-                  placeholder="Ej: 12, 0.5, 1.25"
+                  placeholder={esUnidadKg ? 'Ej: 0,5 (500 g), 1,25' : 'Ej: 12, 0,5, 1,25'}
                   className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                   required={!editandoProducto}
                 />
@@ -902,9 +897,9 @@ export default function Productos() {
                     : (costoDirecto ? 'Costo por unidad ($)' : 'Precio compra total ($)')}
                 </span>
                 <input
-                  type="number"
-                  min="0"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
                   value={formProducto.precioCompra}
                   onChange={(e) => setFormProducto((prev) => ({ ...prev, precioCompra: e.target.value }))}
                   placeholder={esUnidadKg ? 'Ej: 500' : (esUnidadPieza ? 'Ej: 150' : 'Ej: 1500')}
@@ -989,10 +984,9 @@ export default function Productos() {
                   <label className="block">
                     <span className="block text-sm font-medium text-slate-600 mb-1">Kg por unidad</span>
                     <input
-                      type="number"
-                      min="0"
-                      step="0.001"
+                      type="text"
                       inputMode="decimal"
+                      autoComplete="off"
                       value={formProducto.kgPorUnidad}
                       onChange={(e) => setFormProducto((prev) => ({ ...prev, kgPorUnidad: e.target.value }))}
                       placeholder="Ej: 20 (se detecta del nombre si dice x 20 kg)"

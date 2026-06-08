@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 function parsePrecio(val) {
   if (typeof val === 'number') return Number.isFinite(val) ? val : 0;
@@ -96,17 +96,14 @@ export default function Carrito({
   const [editandoId, setEditandoId] = useState(null);
   const [cantidadEdit, setCantidadEdit] = useState(1);
   const [valorEdicion, setValorEdicion] = useState('');
-  const [descuentoPctStr, setDescuentoPctStr] = useState('');
-  const [descuentoPesosStr, setDescuentoPesosStr] = useState('');
+  const [descuentoState, setDescuentoState] = useState({ itemsKey: '', pct: '', pesos: '' });
   const mostrarVacio = vacio ?? items.length === 0;
 
   const subtotalNumerico =
     items.length > 0 ? items.reduce((sum, i) => sum + lineTotal(i), 0) : 0;
-
-  useEffect(() => {
-    setDescuentoPctStr('');
-    setDescuentoPesosStr('');
-  }, [items]);
+  const itemsKey = items.map((item) => `${item.id}:${lineTotal(item)}`).join('|');
+  const descuentoPctStr = descuentoState.itemsKey === itemsKey ? descuentoState.pct : '';
+  const descuentoPesosStr = descuentoState.itemsKey === itemsKey ? descuentoState.pesos : '';
 
   const descuentoNumerico = permitirDescuento
     ? Math.min(parseMonto(descuentoPesosStr), subtotalNumerico)
@@ -116,18 +113,24 @@ export default function Carrito({
   const subtotalFormato = subtotalNumerico > 0 ? formatPrecio(subtotalNumerico) : '$0.00';
 
   const onDescuentoPctChange = (valor) => {
-    setDescuentoPctStr(valor);
     const desc = Math.min(
       Math.round(subtotalNumerico * parsePorcentaje(valor) / 100),
       subtotalNumerico,
     );
-    setDescuentoPesosStr(desc > 0 ? String(desc) : '');
+    setDescuentoState({
+      itemsKey,
+      pct: valor,
+      pesos: desc > 0 ? String(desc) : '',
+    });
   };
 
   const onDescuentoPesosChange = (valor) => {
-    setDescuentoPesosStr(valor);
     const desc = Math.min(parseMonto(valor), subtotalNumerico);
-    setDescuentoPctStr(pctDesdeDescuento(desc, subtotalNumerico));
+    setDescuentoState({
+      itemsKey,
+      pct: pctDesdeDescuento(desc, subtotalNumerico),
+      pesos: valor,
+    });
   };
 
   const iniciarEdicion = (item) => {

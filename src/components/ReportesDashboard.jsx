@@ -82,6 +82,123 @@ function TarjetasResumen({ ventas, reponer, ganancia, compacto = false }) {
   );
 }
 
+function formatCantidad(value) {
+  const n = Number(value) || 0;
+  return n.toLocaleString('es-AR', { maximumFractionDigits: 3 });
+}
+
+function formatPorcentaje(value) {
+  if (value == null || Number.isNaN(Number(value))) return 'Sin costo';
+  return `${Number(value).toLocaleString('es-AR', { maximumFractionDigits: 1 })}%`;
+}
+
+function InsightCard({ titulo, item, valor, detalle, tono = 'slate' }) {
+  const tonos = {
+    slate: 'border-slate-200 bg-white',
+    emerald: 'border-emerald-200 bg-emerald-50/60',
+    amber: 'border-amber-200 bg-amber-50/70',
+    red: 'border-red-200 bg-red-50/70',
+  };
+
+  return (
+    <div className={`rounded-xl border p-3 ${tonos[tono] || tonos.slate}`}>
+      <div className="text-[10px] sm:text-xs font-bold uppercase tracking-wide text-slate-500">
+        {titulo}
+      </div>
+      {item ? (
+        <>
+          <div className="mt-1 font-bold text-slate-900 truncate">{item.nombre || item.label}</div>
+          <div className="mt-1 text-lg font-black text-slate-950">{valor}</div>
+          {detalle && <div className="mt-1 text-xs text-slate-600 leading-snug">{detalle}</div>}
+        </>
+      ) : (
+        <div className="mt-3 text-sm text-slate-500">Sin datos suficientes</div>
+      )}
+    </div>
+  );
+}
+
+function ResumenAccionable({ datos, mostrarDiaMayor = true }) {
+  if (!datos) return null;
+
+  const rentable = datos.productoMasRentable;
+  const vendido = datos.productoMasVendido;
+  const margenBajo = datos.productoMargenBajo;
+  const diaMayor = datos.diaMayorVenta;
+  const parados = datos.productosParados || [];
+
+  return (
+    <section className="rounded-xl bg-white border border-slate-200 p-3 sm:p-4 space-y-3">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-1">
+        <div>
+          <h3 className="text-sm sm:text-base font-black text-slate-900">Resumen accionable</h3>
+          <p className="text-xs sm:text-sm text-slate-500">
+            Lectura rapida para decidir que reforzar, revisar o dejar quieto.
+          </p>
+        </div>
+      </div>
+
+      <div className={`grid grid-cols-1 sm:grid-cols-2 ${mostrarDiaMayor ? 'xl:grid-cols-4' : 'xl:grid-cols-3'} gap-3`}>
+        <InsightCard
+          titulo="Producto mas rentable"
+          item={rentable}
+          valor={rentable ? formatMoneda(rentable.ganancia) : null}
+          detalle={rentable ? `Vendio ${formatMoneda(rentable.ventas)} y repone ${formatMoneda(rentable.costo)}.` : null}
+          tono="emerald"
+        />
+        <InsightCard
+          titulo="Producto mas vendido"
+          item={vendido}
+          valor={vendido ? `${formatCantidad(vendido.unidades)} u.` : null}
+          detalle={vendido ? `Facturo ${formatMoneda(vendido.ventas)} en el periodo.` : null}
+          tono="slate"
+        />
+        <InsightCard
+          titulo="Margen mas bajo"
+          item={margenBajo}
+          valor={margenBajo ? formatPorcentaje(margenBajo.margenPorcentaje) : null}
+          detalle={margenBajo ? `Ganancia estimada: ${formatMoneda(margenBajo.ganancia)}.` : null}
+          tono="red"
+        />
+        {mostrarDiaMayor && (
+          <InsightCard
+            titulo="Dia de mayor venta"
+            item={diaMayor ? { nombre: labelDiaCompleto(diaMayor.clave) } : null}
+            valor={diaMayor ? formatMoneda(diaMayor.ventas) : null}
+            detalle={diaMayor ? `Ganancia estimada: ${formatMoneda(diaMayor.ganancia)}.` : null}
+            tono="amber"
+          />
+        )}
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+          <div className="text-xs font-bold uppercase tracking-wide text-slate-500">
+            Productos parados hace 30 dias
+          </div>
+          <div className="text-xs text-slate-400">Top {Math.min(parados.length, 5)}</div>
+        </div>
+        {parados.length > 0 ? (
+          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {parados.map((producto) => (
+              <div key={producto.nombre} className="rounded-lg bg-white border border-slate-100 px-3 py-2 text-sm">
+                <div className="font-semibold text-slate-800 truncate">{producto.nombre}</div>
+                <div className="text-xs text-slate-500">
+                  {producto.diasSinVenta == null
+                    ? 'Sin ventas registradas'
+                    : `${producto.diasSinVenta} dias sin vender`}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 text-sm text-slate-500">No hay productos parados para revisar en este periodo.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function FilaPeriodo({ label, ventas, reponer, ganancia, activo, onClick }) {
   const contenido = (
     <>
@@ -125,17 +242,17 @@ const METODOS_PAGO = [
 ];
 
 function FilaVentaDia({ venta, editando, onEditar, onCancelar, onGuardar, onBorrar, guardando, borrando }) {
-  const [cliente, setCliente] = useState(venta.cliente || 'Cliente General');
-  const [metodoPago, setMetodoPago] = useState(venta.metodoPago || 'efectivo');
-  const [total, setTotal] = useState(String(Math.round(venta.total || 0)));
-
-  useEffect(() => {
-    if (editando) {
-      setCliente(venta.cliente || 'Cliente General');
-      setMetodoPago(venta.metodoPago || 'efectivo');
-      setTotal(String(Math.round(venta.total || 0)));
-    }
-  }, [editando, venta]);
+  const ventaForm = {
+    ventaId: venta.id,
+    cliente: venta.cliente || 'Cliente General',
+    metodoPago: venta.metodoPago || 'efectivo',
+    total: String(Math.round(venta.total || 0)),
+  };
+  const [form, setForm] = useState(ventaForm);
+  const formActual = form.ventaId === venta.id ? form : ventaForm;
+  const actualizarForm = (campo, valor) => {
+    setForm({ ...formActual, [campo]: valor });
+  };
 
   if (editando) {
     return (
@@ -145,16 +262,16 @@ function FilaVentaDia({ venta, editando, onEditar, onCancelar, onGuardar, onBorr
           <span className="text-slate-600 mb-1 block">Cliente</span>
           <input
             type="text"
-            value={cliente}
-            onChange={(e) => setCliente(e.target.value)}
+            value={formActual.cliente}
+            onChange={(e) => actualizarForm('cliente', e.target.value)}
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-800"
           />
         </label>
         <label className="block text-sm">
           <span className="text-slate-600 mb-1 block">Método de pago</span>
           <select
-            value={metodoPago}
-            onChange={(e) => setMetodoPago(e.target.value)}
+            value={formActual.metodoPago}
+            onChange={(e) => actualizarForm('metodoPago', e.target.value)}
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-800"
           >
             {METODOS_PAGO.map((m) => (
@@ -167,8 +284,8 @@ function FilaVentaDia({ venta, editando, onEditar, onCancelar, onGuardar, onBorr
           <input
             type="text"
             inputMode="numeric"
-            value={total}
-            onChange={(e) => setTotal(e.target.value)}
+            value={formActual.total}
+            onChange={(e) => actualizarForm('total', e.target.value)}
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-800"
           />
         </label>
@@ -176,7 +293,11 @@ function FilaVentaDia({ venta, editando, onEditar, onCancelar, onGuardar, onBorr
           <button
             type="button"
             disabled={guardando}
-            onClick={() => onGuardar({ cliente: cliente.trim() || 'Cliente General', metodoPago, total: Number(total.replace(/\./g, '')) || 0 })}
+            onClick={() => onGuardar({
+              cliente: formActual.cliente.trim() || 'Cliente General',
+              metodoPago: formActual.metodoPago,
+              total: Number(formActual.total.replace(/\./g, '')) || 0,
+            })}
             className="rounded-lg bg-emerald-600 text-white px-3 py-2 text-sm font-semibold disabled:opacity-60"
           >
             {guardando ? 'Guardando...' : 'Guardar'}
@@ -395,6 +516,8 @@ export default function ReportesDashboard() {
   const margenNeto = margenBruto - totalGastos;
   const hayVentas = ventasTotales > 0;
   const labelMes = opcionesMes.find((m) => m.clave === mesSeleccionado)?.label ?? labelMesCompleto(mesSeleccionado);
+  const accionableMes = resumen?.accionablePorMes?.[mesSeleccionado] ?? null;
+  const accionableDia = detalleDia.accionable ?? null;
 
   if (cargando) {
     return (
@@ -454,6 +577,7 @@ export default function ReportesDashboard() {
       {pestana === 'total' && hayVentas && (
         <div className="space-y-4">
           <TarjetasResumen ventas={ventasTotales} reponer={plataParaReponer} ganancia={margenBruto} />
+          <ResumenAccionable datos={resumen?.accionableTotal} />
           <div className="rounded-xl bg-white border border-slate-200 p-4 text-sm space-y-2">
             <div className="flex justify-between"><span className="text-slate-500">Ventas hoy</span><span className="font-semibold">{formatMoneda(resumen?.ventasHoy ?? 0)}</span></div>
             <div className="flex justify-between"><span className="text-slate-500">Ganancia hoy</span><span className="font-semibold text-emerald-700">{formatMoneda(resumen?.gananciaHoy ?? 0)}</span></div>
@@ -517,6 +641,7 @@ export default function ReportesDashboard() {
             </select>
           </label>
           <TarjetasResumen {...resumenMes} compacto />
+          <ResumenAccionable datos={accionableMes} />
           <div>
             <h4 className="text-sm font-bold text-slate-800 mb-2">
               Días con ventas — {labelMes}
@@ -572,6 +697,7 @@ export default function ReportesDashboard() {
           </div>
           <p className="text-sm text-slate-600">{labelDiaCompleto(diaSeleccionado)}</p>
           <TarjetasResumen {...resumenDia} compacto />
+          <ResumenAccionable datos={accionableDia} mostrarDiaMayor={false} />
           {detalleDia.ventasLista?.length > 0 ? (
             <>
               <div className="rounded-xl bg-white border border-slate-200 overflow-hidden">

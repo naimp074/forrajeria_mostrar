@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useProductos } from '../context/ProductosContext';
 import { usePagination } from '../hooks/usePagination';
 import Paginacion from './Paginacion';
+import { parseNumeroFlexible } from '../utils/preciosKg';
 
 const MARGEN_DEFAULT = '30';
 
@@ -13,13 +14,7 @@ function parsePrecio(str) {
 }
 
 function parseNumero(valor) {
-  const texto = String(valor ?? '').trim();
-  if (!texto) return 0;
-  const limpio = texto.replace(/[^\d,.-]/g, '');
-  const normalizado = limpio.includes(',')
-    ? limpio.replace(/\./g, '').replace(',', '.')
-    : limpio;
-  return parseFloat(normalizado) || 0;
+  return parseNumeroFlexible(valor);
 }
 
 function calcularPrecioVenta(precioCompra, margenPorcentaje) {
@@ -56,6 +51,7 @@ export default function AgregarStock({ datosPorProducto = {}, onRegistrarIngreso
   const [numeroProveedor, setNumeroProveedor] = useState('');
   const [observacion, setObservacion] = useState('');
   const [enviado, setEnviado] = useState(false);
+  const [errorFormulario, setErrorFormulario] = useState(null);
   const [busquedaCatalogo, setBusquedaCatalogo] = useState('');
 
   const productosFiltrados = useMemo(() => {
@@ -123,12 +119,19 @@ export default function AgregarStock({ datosPorProducto = {}, onRegistrarIngreso
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    setErrorFormulario(null);
     const cant = parseNumero(cantidad);
-    if (cant <= 0) return;
+    if (cant <= 0) {
+      setErrorFormulario('La cantidad debe ser mayor a 0. Podés usar 0,5 para medio kilo (500 g).');
+      return;
+    }
 
     if (origenProducto === 'nuevo') {
       const n = nombreNuevo.trim();
-      if (n.length < 2) return;
+      if (n.length < 2) {
+        setErrorFormulario('El nombre del producto debe tener al menos 2 letras.');
+        return;
+      }
     }
 
     const compra = calcularCostoUnitario(precioCompra, cant);
@@ -174,7 +177,12 @@ export default function AgregarStock({ datosPorProducto = {}, onRegistrarIngreso
           </span>
         )}
       </div>
-      <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4">
+      <form noValidate onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4">
+        {errorFormulario && (
+          <div className="rounded-xl bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 text-sm">
+            {errorFormulario}
+          </div>
+        )}
         <div>
           <span className="block text-sm font-medium text-slate-700 mb-2">Producto</span>
           <div className="flex flex-wrap gap-2 mb-3">
@@ -269,14 +277,16 @@ export default function AgregarStock({ datosPorProducto = {}, onRegistrarIngreso
               Cantidad
             </label>
             <input
-              type="number"
-              min="0.001"
-              step="0.001"
+              type="text"
               inputMode="decimal"
+              autoComplete="off"
               value={cantidad}
-              onChange={(e) => setCantidad(e.target.value)}
+              onChange={(e) => {
+                setCantidad(e.target.value);
+                setErrorFormulario(null);
+              }}
               className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 px-4 text-slate-800 focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400"
-              placeholder="Ej: 12, 0.5, 1.25"
+              placeholder={unidad === 'kg' ? 'Ej: 0,5 (500 g), 1,25' : 'Ej: 12, 0,5, 1,25'}
               required
             />
           </div>
