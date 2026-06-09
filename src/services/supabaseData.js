@@ -26,6 +26,33 @@ function mapGasto(row) {
   };
 }
 
+function mapPromoItem(row) {
+  return {
+    id: row.id,
+    productoId: row.producto_id,
+    nombre: row.producto_nombre,
+    unidad: row.unidad || 'bolsas',
+    cantidad: Number(row.cantidad) || 1,
+    costo: Number(row.costo_unitario) || 0,
+    precioNormal: Number(row.precio_normal_unitario) || 0,
+  };
+}
+
+function mapPromo(row) {
+  return {
+    id: row.id,
+    nombre: row.nombre,
+    costoTotal: Number(row.costo_total) || 0,
+    precioNormalTotal: Number(row.precio_normal_total) || 0,
+    margenPromo: Number(row.margen_promo) || 0,
+    precioPromo: Number(row.precio_promo) || 0,
+    gananciaPromo: Number(row.ganancia_promo) || 0,
+    activa: row.activa !== false,
+    creadaEn: row.created_at,
+    items: (row.promo_items || []).map(mapPromoItem),
+  };
+}
+
 function mapStockRow(row) {
   const producto = row.productos;
   return {
@@ -487,6 +514,67 @@ export async function crearPedidosCliente(pedidos) {
   const { data, error } = await client.from('pedidos_clientes').insert(rows).select('*');
   if (error) throw error;
   return (data || []).map(mapPedidoCliente);
+}
+
+export async function listarPromos() {
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from('promos')
+    .select('*, promo_items(*)')
+    .eq('activa', true)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data || []).map(mapPromo);
+}
+
+export async function crearPromo(promo) {
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from('promos')
+    .insert({
+      nombre: promo.nombre,
+      costo_total: Number(promo.costoTotal) || 0,
+      precio_normal_total: Number(promo.precioNormalTotal) || 0,
+      margen_promo: Number(promo.margenPromo) || 0,
+      precio_promo: Number(promo.precioPromo) || 0,
+      ganancia_promo: Number(promo.gananciaPromo) || 0,
+      activa: true,
+    })
+    .select('*')
+    .single();
+  if (error) throw error;
+
+  const items = (promo.items || []).map((item) => ({
+    promo_id: data.id,
+    producto_id: item.productoId || null,
+    producto_nombre: item.nombre,
+    unidad: item.unidad || 'bolsas',
+    cantidad: Number(item.cantidad) || 1,
+    costo_unitario: Number(item.costo) || 0,
+    precio_normal_unitario: Number(item.precioNormal) || 0,
+  }));
+
+  if (items.length > 0) {
+    const { error: itemsError } = await client.from('promo_items').insert(items);
+    if (itemsError) throw itemsError;
+  }
+
+  const { data: completa, error: completaError } = await client
+    .from('promos')
+    .select('*, promo_items(*)')
+    .eq('id', data.id)
+    .single();
+  if (completaError) throw completaError;
+  return mapPromo(completa);
+}
+
+export async function borrarPromo(id) {
+  const client = requireSupabase();
+  const { error } = await client
+    .from('promos')
+    .update({ activa: false })
+    .eq('id', id);
+  if (error) throw error;
 }
 
 export async function listarGastos() {

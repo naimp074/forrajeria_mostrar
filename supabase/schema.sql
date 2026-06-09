@@ -163,6 +163,30 @@ create table if not exists public.pedidos_clientes (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.promos (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null,
+  costo_total numeric not null default 0,
+  precio_normal_total numeric not null default 0,
+  margen_promo numeric not null default 0,
+  precio_promo numeric not null default 0,
+  ganancia_promo numeric not null default 0,
+  activa boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.promo_items (
+  id uuid primary key default gen_random_uuid(),
+  promo_id uuid not null references public.promos(id) on delete cascade,
+  producto_id uuid references public.productos(id) on delete set null,
+  producto_nombre text not null,
+  unidad text not null default 'bolsas',
+  cantidad numeric not null default 1,
+  costo_unitario numeric not null default 0,
+  precio_normal_unitario numeric not null default 0,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.caja_sesiones (
   id uuid primary key default gen_random_uuid(),
   usuario_id uuid references public.profiles(id) on delete set null default auth.uid(),
@@ -239,6 +263,8 @@ alter table public.presupuesto_lineas enable row level security;
 alter table public.gastos enable row level security;
 alter table public.fiado_movimientos enable row level security;
 alter table public.pedidos_clientes enable row level security;
+alter table public.promos enable row level security;
+alter table public.promo_items enable row level security;
 alter table public.caja_sesiones enable row level security;
 
 drop policy if exists "profiles_select_own" on public.profiles;
@@ -294,6 +320,12 @@ create policy "authenticated_all_pedidos_clientes" on public.pedidos_clientes fo
 
 drop policy if exists "anon_insert_pedidos_clientes" on public.pedidos_clientes;
 create policy "anon_insert_pedidos_clientes" on public.pedidos_clientes for insert to anon with check (true);
+
+drop policy if exists "authenticated_all_promos" on public.promos;
+create policy "authenticated_all_promos" on public.promos for all to authenticated using (true) with check (true);
+
+drop policy if exists "authenticated_all_promo_items" on public.promo_items;
+create policy "authenticated_all_promo_items" on public.promo_items for all to authenticated using (true) with check (true);
 
 drop policy if exists "authenticated_all_caja_sesiones" on public.caja_sesiones;
 create policy "authenticated_all_caja_sesiones" on public.caja_sesiones for all to authenticated using (true) with check (true);

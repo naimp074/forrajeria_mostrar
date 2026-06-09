@@ -14,6 +14,7 @@ const Presupuestos = lazy(() => import('./pages/Presupuestos'));
 const Caja = lazy(() => import('./pages/Caja'));
 const Stock = lazy(() => import('./pages/Stock'));
 const Productos = lazy(() => import('./pages/Productos'));
+const Promos = lazy(() => import('./pages/Promos'));
 const Pedir = lazy(() => import('./pages/Pedir'));
 const Clientes = lazy(() => import('./pages/Clientes'));
 const Proveedores = lazy(() => import('./pages/Proveedores'));
@@ -67,6 +68,7 @@ export default function App() {
                 <Route path="caja" element={<Caja />} />
                 <Route path="stock" element={<Stock />} />
                 <Route path="productos" element={<Productos />} />
+                <Route path="promos" element={<Promos />} />
                 <Route path="clientes" element={<Clientes />} />
                 <Route path="proveedores" element={<Proveedores />} />
                 <Route path="reportes" element={<Reportes />} />

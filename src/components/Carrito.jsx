@@ -365,6 +365,7 @@ export default function Carrito({
                         <div className="grid grid-cols-2 min-[380px]:flex items-center gap-1 sm:gap-1.5">
                           {(!item.modoVenta ||
                             item.modoVenta === 'bolsa' ||
+                            item.modoVenta === 'promo' ||
                             (((modoEdicionKilo || modoEdicionPesos) && onEditarCarritoItem))) && (
                             <button
                               type="button"

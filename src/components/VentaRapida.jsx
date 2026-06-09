@@ -4,7 +4,7 @@ import Carrito from './Carrito';
 import Paginacion from './Paginacion';
 import { useStock } from '../context/StockContext';
 import { useProductos } from '../context/ProductosContext';
-import { crearVenta } from '../services/supabaseData';
+import { crearVenta, listarPromos } from '../services/supabaseData';
 import { usePagination } from '../hooks/usePagination';
 import {
   calcularPrecioVenta,
@@ -126,6 +126,7 @@ export default function VentaRapida() {
   const [kgInput, setKgInput] = useState('');
   const [pesosInput, setPesosInput] = useState('');
   const [procesandoVenta, setProcesandoVenta] = useState(false);
+  const [promosGuardadas, setPromosGuardadas] = useState([]);
 
   const cerrarModal = useCallback(() => {
     setModalProducto(null);
@@ -144,6 +145,25 @@ export default function VentaRapida() {
     };
   }, [modalProducto]);
 
+  useEffect(() => {
+    let mounted = true;
+    const cargarPromos = async () => {
+      try {
+        const rows = await listarPromos();
+        if (mounted) setPromosGuardadas(rows);
+      } catch (err) {
+        console.warn('No se pudieron cargar promos desde Supabase.', err);
+        if (mounted) setPromosGuardadas([]);
+      }
+    };
+    cargarPromos();
+    window.addEventListener('focus', cargarPromos);
+    return () => {
+      mounted = false;
+      window.removeEventListener('focus', cargarPromos);
+    };
+  }, []);
+
   const productosFiltrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
     if (!q) return productos;
@@ -151,6 +171,12 @@ export default function VentaRapida() {
       (p) => p.name.toLowerCase().includes(q) || p.stock.toLowerCase().includes(q)
     );
   }, [busqueda, productos]);
+
+  const promosFiltradas = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    if (!q) return promosGuardadas;
+    return promosGuardadas.filter((promo) => promo.nombre.toLowerCase().includes(q));
+  }, [busqueda, promosGuardadas]);
 
   const productosConStock = useMemo(() => {
     return productosFiltrados.map((producto) => {
@@ -179,6 +205,39 @@ export default function VentaRapida() {
     setCantBolsas(1);
     setKgInput('');
     setPesosInput('');
+  };
+
+  const agregarPromoAlCarrito = (promo) => {
+    const precioPromo = Number(promo.precioPromo) || 0;
+    if (precioPromo <= 0) return;
+    setCarrito((prev) => {
+      const existente = prev.find((item) => item.modoVenta === 'promo' && item.promoId === promo.id);
+      if (existente) {
+        return prev.map((item) =>
+          item.id === existente.id
+            ? {
+                ...item,
+                cantidad: item.cantidad + 1,
+                subtotal: redondearMonto((item.cantidad + 1) * precioPromo),
+                detalleTexto: `${item.cantidad + 1} promos × ${formatMoney(precioPromo)}`,
+              }
+            : item,
+        );
+      }
+      return [
+        ...prev,
+        {
+          id: generarId(),
+          promoId: promo.id,
+          nombre: `Promo: ${promo.nombre}`,
+          modoVenta: 'promo',
+          cantidad: 1,
+          precioUnitario: precioPromo,
+          subtotal: precioPromo,
+          detalleTexto: `1 promo × ${formatMoney(precioPromo)}`,
+        },
+      ];
+    });
   };
 
   const precioBolsa = modalProducto ? parsePrecioStr(modalProducto.price) : 0;
@@ -353,12 +412,14 @@ export default function VentaRapida() {
         if (i.modoVenta === 'kilo' || i.modoVenta === 'pesos') return i;
         const pu = parsePrecioStr(i.precioUnitario);
         const nextSubtotal = redondearMonto(nuevaCantidad * pu);
-        if (i.modoVenta === 'bolsa') {
+        if (i.modoVenta === 'bolsa' || i.modoVenta === 'promo') {
           return {
             ...i,
             cantidad: nuevaCantidad,
             subtotal: nextSubtotal,
-            detalleTexto: `${nuevaCantidad} ${i.unidadPlural || 'bolsas'} × ${formatMoney(pu)}`,
+            detalleTexto: i.modoVenta === 'promo'
+              ? `${nuevaCantidad} promos × ${formatMoney(pu)}`
+              : `${nuevaCantidad} ${i.unidadPlural || 'bolsas'} × ${formatMoney(pu)}`,
           };
         }
         return { ...i, cantidad: nuevaCantidad };
@@ -390,6 +451,7 @@ export default function VentaRapida() {
       setPorProducto((prev) => {
         const next = { ...prev };
         ventaItems.forEach((item) => {
+          if (item.modoVenta === 'promo') return;
           let vendido = 0;
           if (item.modoVenta === 'bolsa') {
             vendido = Number(item.cantidad) || 0;
@@ -692,11 +754,35 @@ export default function VentaRapida() {
               <p className="text-slate-400 text-center py-6 sm:py-8 text-sm sm:text-base">Cargando productos...</p>
             ) : errorProductos ? (
               <p className="text-amber-700 text-center py-6 sm:py-8 text-sm sm:text-base">{errorProductos}</p>
-            ) : productosFiltrados.length === 0 ? (
-              <p className="text-slate-400 text-center py-6 sm:py-8 text-sm sm:text-base">Todavía no hay productos. Cargá el primero desde Stock.</p>
+            ) : productosFiltrados.length === 0 && promosFiltradas.length === 0 ? (
+              <p className="text-slate-400 text-center py-6 sm:py-8 text-sm sm:text-base">Todavía no hay productos ni promos para mostrar.</p>
             ) : (
               <>
               <ul className="p-2 space-y-1">
+                {promosFiltradas.map((promo) => (
+                  <li key={promo.id}>
+                    <button
+                      type="button"
+                      onClick={() => agregarPromoAlCarrito(promo)}
+                      className="w-full rounded-xl border border-amber-200 bg-amber-50 p-4 text-left flex items-center justify-between gap-3 sm:gap-4 hover:bg-amber-100 transition touch-manipulation"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-semibold text-slate-900 text-sm sm:text-base truncate">
+                          Promo: {promo.nombre}
+                        </div>
+                        <div className="text-xs sm:text-sm text-amber-800">
+                          {promo.items?.length || 0} producto{promo.items?.length === 1 ? '' : 's'} · Ganancia {formatMoney(promo.gananciaPromo)}
+                        </div>
+                        <div className="text-xs text-slate-500 mt-0.5">
+                          Normal {formatMoney(promo.precioNormalTotal)} · Promo {formatMoney(promo.precioPromo)}
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="text-xs text-amber-700 font-semibold">Agregar</span>
+                      </div>
+                    </button>
+                  </li>
+                ))}
                 {listaPaginacion.paginatedItems.map((p) => {
                   const pb = parsePrecioStr(p.price);
                   const pk = p.unidad === 'kg'
