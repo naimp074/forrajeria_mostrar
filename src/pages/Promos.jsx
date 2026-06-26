@@ -85,7 +85,7 @@ export default function Promos() {
         const stock = buscarStockProducto(porProducto, producto.name);
         const precioCompra = Number(stock.precioCompra) || Number(producto.precioCompra) || 0;
         const precioVentaStock = Number(stock.precioVenta) || 0;
-        const kgPorUnidad = extraerKgDelNombre(producto.name);
+        const kgPorUnidad = Number(producto.kgPorUnidad) || extraerKgDelNombre(producto.name);
         const enriquecido = enriquecerProductoConMargenes(producto, precioCompra, {
           kgPorUnidad,
           precioVentaStock,

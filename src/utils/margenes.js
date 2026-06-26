@@ -92,7 +92,7 @@ export function resolverMargenKg(producto, precioCompra = 0, options = {}) {
     if (inferido != null) return inferido;
   }
 
-  const kgPorUnidad = options.kgPorUnidad || extraerKgDelNombre(producto?.name);
+  const kgPorUnidad = options.kgPorUnidad || Number(producto?.kgPorUnidad) || extraerKgDelNombre(producto?.name);
   if (kgPorUnidad > 0 && compra > 0 && precioKg > 0) {
     const costoKg = calcularPrecioCompraKg(compra, kgPorUnidad);
     if (costoKg > 0) {
@@ -110,7 +110,7 @@ export function resolverMargenKg(producto, precioCompra = 0, options = {}) {
  */
 export function enriquecerProductoConMargenes(producto, precioCompra, options = {}) {
   const compra = Number(precioCompra) || Number(producto?.precioCompra) || 0;
-  const kgPorUnidad = options.kgPorUnidad || extraerKgDelNombre(producto?.name);
+  const kgPorUnidad = options.kgPorUnidad || Number(producto?.kgPorUnidad) || extraerKgDelNombre(producto?.name);
   const precioVentaStock = Number(options.precioVentaStock) || 0;
   const precioKgStock = Number(options.precioKgStock) || 0;
 
@@ -149,7 +149,7 @@ export function resolverPrecioKgVenta(producto, precioCompra, precioVenta) {
   const enriquecido = enriquecerProductoConMargenes(producto, precioCompra, {
     precioVentaStock: precioVenta,
     precioKgStock: producto?.precioKg,
-    kgPorUnidad: extraerKgDelNombre(producto?.name),
+    kgPorUnidad: Number(producto?.kgPorUnidad) || extraerKgDelNombre(producto?.name),
   });
   return enriquecido.precioKg;
 }

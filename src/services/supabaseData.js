@@ -95,6 +95,9 @@ function buildProductoDbRow(producto, { includeMargenes = true } = {}) {
   };
 
   if (includeMargenes) {
+    row.kg_por_unidad = producto.kgPorUnidad != null && Number(producto.kgPorUnidad) > 0
+      ? Number(producto.kgPorUnidad)
+      : null;
     row.margen_bolsa = producto.margenBolsa != null ? Number(producto.margenBolsa) : null;
     row.margen_kg = producto.margenKg != null ? Number(producto.margenKg) : null;
   } else if (producto.margenBolsa != null || producto.margenKg != null) {
@@ -112,6 +115,7 @@ function esErrorColumnasMargen(error) {
   const mensaje = String(error?.message || error?.details || '').toLowerCase();
   return mensaje.includes('margen_bolsa')
     || mensaje.includes('margen_kg')
+    || mensaje.includes('kg_por_unidad')
     || (mensaje.includes('margen') && mensaje.includes('column'));
 }
 
@@ -148,6 +152,7 @@ function mapProducto(row) {
     price: Number(row.precio_unidad) || 0,
     precioKg: Number(row.precio_kg) || 0,
     precioCompra: Number(row.precio_compra_ref) || 0,
+    kgPorUnidad: Number(row.kg_por_unidad) || extraerKgDelNombre(row.nombre),
     margenBolsa,
     margenKg,
     stock: stockLabel,
@@ -337,6 +342,7 @@ function mapCatalogoPublicoRow(row) {
     nombre: row.nombre,
     precio_unidad: row.precio_unidad,
     precio_kg: row.precio_kg,
+    kg_por_unidad: row.kg_por_unidad,
     unidad_default: row.unidad_default,
     margen_bolsa: row.margen_bolsa,
     margen_kg: row.margen_kg,
@@ -352,7 +358,7 @@ function mapCatalogoPublicoRow(row) {
     Number(row.precio_compra_ref) ||
     Number(producto.precioCompra) ||
     0;
-  const kgPorUnidad = extraerKgDelNombre(row.nombre);
+  const kgPorUnidad = Number(row.kg_por_unidad) || extraerKgDelNombre(row.nombre);
   const enriquecido = enriquecerProductoConMargenes(producto, precioCompra, {
     kgPorUnidad,
     precioVentaStock: Number(row.stock_precio_venta) || 0,
@@ -389,6 +395,7 @@ export async function listarCatalogoPublico() {
         stock_precio_venta: 0,
         margen_bolsa: null,
         margen_kg: null,
+        kg_por_unidad: null,
         observacion: null,
         precio_compra_ref: 0,
       }),
@@ -1057,6 +1064,28 @@ function calcularCostoLinea(linea, productosPorNombre) {
 
 export async function listarVentas({ limit = 200 } = {}) {
   const client = requireSupabase();
+
+  if (limit == null) {
+    const pageSize = 1000;
+    let from = 0;
+    const rows = [];
+
+    while (true) {
+      const { data, error } = await client
+        .from('ventas')
+        .select('*, venta_lineas(*)')
+        .order('fecha', { ascending: false })
+        .range(from, from + pageSize - 1);
+      if (error) throw error;
+
+      rows.push(...(data || []));
+      if (!data || data.length < pageSize) break;
+      from += pageSize;
+    }
+
+    return rows.map(mapVenta);
+  }
+
   const { data, error } = await client
     .from('ventas')
     .select('*, venta_lineas(*)')
@@ -1068,7 +1097,7 @@ export async function listarVentas({ limit = 200 } = {}) {
 
 export async function obtenerResumenReportes() {
   const [ventas, productos] = await Promise.all([
-    listarVentas({ limit: 500 }),
+    listarVentas({ limit: null }),
     listarProductos(),
   ]);
 

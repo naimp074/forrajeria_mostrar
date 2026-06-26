@@ -1,12 +1,18 @@
 -- Ejecutar en Supabase SQL Editor para habilitar /pedir sin login.
 -- Lista TODOS los productos activos con datos para calcular precio bolsa y kg.
 
+alter table public.productos
+  add column if not exists kg_por_unidad numeric;
+
+drop function if exists public.listar_catalogo_publico();
+
 create or replace function public.listar_catalogo_publico()
 returns table (
   id uuid,
   nombre text,
   precio_unidad numeric,
   precio_kg numeric,
+  kg_por_unidad numeric,
   unidad_default text,
   margen_bolsa numeric,
   margen_kg numeric,
@@ -25,6 +31,7 @@ as $$
     p.nombre,
     p.precio_unidad,
     p.precio_kg,
+    p.kg_por_unidad,
     p.unidad_default,
     p.margen_bolsa,
     p.margen_kg,
@@ -40,12 +47,15 @@ $$;
 
 grant execute on function public.listar_catalogo_publico() to anon, authenticated;
 
+drop view if exists public.catalogo_publico;
+
 create or replace view public.catalogo_publico as
 select
   p.id,
   p.nombre,
   p.precio_unidad,
   p.precio_kg,
+  p.kg_por_unidad,
   p.unidad_default,
   p.margen_bolsa,
   p.margen_kg,

@@ -182,7 +182,7 @@ export default function Productos() {
       const precioVentaStock = Number(stock.precioVenta) || 0;
       const disponible = stockDisponible(stock);
       const precioCompra = precioCompraStock || Number(producto.precioCompra) || 0;
-      const kgPorUnidad = extraerKgDelNombre(producto.name);
+      const kgPorUnidad = Number(producto.kgPorUnidad) || extraerKgDelNombre(producto.name);
       const enriquecido = enriquecerProductoConMargenes(producto, precioCompra, {
         kgPorUnidad,
         precioVentaStock: precioVentaStock,
@@ -296,7 +296,7 @@ export default function Productos() {
       margenBolsa: formatearMargen(producto.margenBolsa),
       margenKg: formatearMargen(producto.margenKg),
       precioKg: String(producto.precioKg ?? ''),
-      kgPorUnidad: String(extraerKgDelNombre(producto.name) || ''),
+      kgPorUnidad: String(producto.kgPorUnidad || extraerKgDelNombre(producto.name) || ''),
       precioCompra: String(producto.precioCompra ?? ''),
       cantidad: formatStockParaEdicion(
         producto.cantidadDisponible ?? stockDisponible(buscarStockProducto(porProducto, producto.name)),
@@ -410,6 +410,7 @@ export default function Productos() {
       const payload = {
         ...formProducto,
         nombre,
+        kgPorUnidad,
         precioCompra,
         precioUnidad: precioVentaCalculado,
         precioKg: precioKgFinal,

@@ -250,7 +250,7 @@ export default function VentaRapida() {
   const etiquetaUnidadPlural = unidadProducto === 'fardos' ? 'fardos' : unidadProducto === 'unidades' ? 'unidades' : 'bolsas';
   const disponibleModal = Number(modalProducto?.disponible) || 0;
   const kgPorUnidadModal = modalProducto
-    ? extraerKgDelNombre(modalProducto.name) || 0
+    ? Number(modalProducto.kgPorUnidad) || extraerKgDelNombre(modalProducto.name) || 0
     : 0;
   const disponibleKgModal = modalProducto
     ? stockUnidadesADisponibleKg(disponibleModal, unidadProducto, kgPorUnidadModal)

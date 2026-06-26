@@ -22,6 +22,7 @@ create table if not exists public.productos (
   precio_unidad numeric not null default 0,
   precio_kg numeric not null default 0,
   precio_compra_ref numeric not null default 0,
+  kg_por_unidad numeric,
   margen_bolsa numeric,
   margen_kg numeric,
   unidad_default text not null default 'bolsas',
@@ -33,6 +34,9 @@ create table if not exists public.productos (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.productos
+  add column if not exists kg_por_unidad numeric;
 
 create table if not exists public.proveedores (
   id uuid primary key default gen_random_uuid(),
@@ -331,12 +335,15 @@ drop policy if exists "authenticated_all_caja_sesiones" on public.caja_sesiones;
 create policy "authenticated_all_caja_sesiones" on public.caja_sesiones for all to authenticated using (true) with check (true);
 
 -- Catálogo público para /pedir (sin login)
+drop function if exists public.listar_catalogo_publico();
+
 create or replace function public.listar_catalogo_publico()
 returns table (
   id uuid,
   nombre text,
   precio_unidad numeric,
   precio_kg numeric,
+  kg_por_unidad numeric,
   unidad_default text,
   margen_bolsa numeric,
   margen_kg numeric,
@@ -355,6 +362,7 @@ as $$
     p.nombre,
     p.precio_unidad,
     p.precio_kg,
+    p.kg_por_unidad,
     p.unidad_default,
     p.margen_bolsa,
     p.margen_kg,
@@ -370,12 +378,15 @@ $$;
 
 grant execute on function public.listar_catalogo_publico() to anon, authenticated;
 
+drop view if exists public.catalogo_publico;
+
 create or replace view public.catalogo_publico as
 select
   p.id,
   p.nombre,
   p.precio_unidad,
   p.precio_kg,
+  p.kg_por_unidad,
   p.unidad_default,
   p.margen_bolsa,
   p.margen_kg,
