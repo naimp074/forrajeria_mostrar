@@ -217,6 +217,7 @@ export default function Productos() {
   const precioVentaKgForm = soportaVentaPorKg && kgPorUnidadForm > 0
     ? calcularPrecioVentaKg(costoFormulario, kgPorUnidadForm, margenKgForm)
     : 0;
+  const precioVenta100gForm = precioVentaKgForm > 0 ? precioVentaKgForm / 10 : 0;
   const costoKgForm = kgPorUnidadForm > 0 ? calcularPrecioCompraKg(costoFormulario, kgPorUnidadForm) : 0;
 
   const datosMes = ventasPorProductoPorMes.find((m) => m.mes === mesBalance);
@@ -1012,6 +1013,15 @@ export default function Productos() {
                         </span>
                         <span className="text-xs text-emerald-700">
                           Costo por kg + {margenKgForm}% de ganancia
+                        </span>
+                      </div>
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3">
+                        <span className="block text-sm font-medium text-emerald-800">Precio venta 100 g (suelto)</span>
+                        <span className="mt-1 block text-xl font-bold text-emerald-900">
+                          {formatMoneda(precioVenta100gForm)}
+                        </span>
+                        <span className="text-xs text-emerald-700">
+                          Precio por kg ÷ 10
                         </span>
                       </div>
                     </>
