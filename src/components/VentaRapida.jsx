@@ -764,10 +764,10 @@ export default function VentaRapida() {
                     <button
                       type="button"
                       onClick={() => agregarPromoAlCarrito(promo)}
-                      className="w-full rounded-xl border border-amber-200 bg-amber-50 p-4 text-left flex items-center justify-between gap-3 sm:gap-4 hover:bg-amber-100 transition touch-manipulation"
+                      className="w-full rounded-xl border border-amber-200 bg-amber-50 p-4 text-left flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 hover:bg-amber-100 transition touch-manipulation"
                     >
-                      <div className="min-w-0">
-                        <div className="font-semibold text-slate-900 text-sm sm:text-base truncate">
+                      <div className="min-w-0 w-full">
+                        <div className="font-semibold text-slate-900 text-sm sm:text-base leading-snug break-words">
                           Promo: {promo.nombre}
                         </div>
                         <div className="text-xs sm:text-sm text-amber-800">
@@ -777,7 +777,7 @@ export default function VentaRapida() {
                           Normal {formatMoney(promo.precioNormalTotal)} · Promo {formatMoney(promo.precioPromo)}
                         </div>
                       </div>
-                      <div className="text-right shrink-0">
+                      <div className="w-full sm:w-auto text-right shrink-0">
                         <span className="text-xs text-amber-700 font-semibold">Agregar</span>
                       </div>
                     </button>
@@ -796,10 +796,12 @@ export default function VentaRapida() {
                       <button
                         type="button"
                         onClick={() => abrirModal(p)}
-                        className="w-full rounded-xl border border-slate-200 bg-white p-4 text-left flex items-center justify-between gap-3 sm:gap-4 hover:bg-emerald-50 hover:border-emerald-200 transition touch-manipulation"
+                        className="w-full rounded-xl border border-slate-200 bg-white p-4 text-left flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 hover:bg-emerald-50 hover:border-emerald-200 transition touch-manipulation"
                       >
-                        <div className="min-w-0">
-                          <div className="font-semibold text-slate-800 text-sm sm:text-base truncate">{p.name}</div>
+                        <div className="min-w-0 w-full">
+                          <div className="font-semibold text-slate-800 text-sm sm:text-base leading-snug break-words">
+                            {p.name}
+                          </div>
                           <div className="text-xs sm:text-sm text-slate-500">
                             Disponible: {formatDisponible(p.disponible, p.unidad)}
                           </div>
@@ -809,7 +811,7 @@ export default function VentaRapida() {
                               : `${formatMoney(pb)}/${p.unidad === 'unidades' ? 'unidad' : fardo ? 'fardo' : 'bolsa'}${pk > 0 && p.unidad !== 'unidades' ? ` · ${formatMoney(pk)}/kg` : ''}`}
                           </div>
                         </div>
-                        <div className="text-right shrink-0">
+                        <div className="w-full sm:w-auto text-right shrink-0">
                           <span className="text-xs text-emerald-600 font-semibold">Vender</span>
                         </div>
                       </button>
