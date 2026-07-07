@@ -5,6 +5,7 @@ import AgregarStock from '../components/AgregarStock';
 import StockInteligente from '../components/StockInteligente';
 import ComprasVentasGanancias from '../components/ComprasVentasGanancias';
 import StockExcel from '../components/StockExcel';
+import StockTicketPdf from '../components/StockTicketPdf';
 import { registrarIngresoStock } from '../services/supabaseData';
 
 const INGRESOS_KEY = 'forrajeria_ingresos_v2';
@@ -97,6 +98,7 @@ export default function Stock() {
         </p>
       )}
       <StockExcel porProducto={porProducto} setPorProducto={setPorProductoSincronizado} />
+      <StockTicketPdf onRegistrarIngreso={onRegistrarIngreso} />
       <AgregarStock
         datosPorProducto={porProducto}
         onRegistrarIngreso={onRegistrarIngreso}
