@@ -4,6 +4,7 @@ import { useProductos } from '../context/ProductosContext';
 import { calcularPrecioVenta, MARGEN_DEFAULT } from '../utils/margenes';
 import { calcularPrecioVentaKg, extraerKgDelNombre, parseNumeroFlexible } from '../utils/preciosKg';
 import { normalizarNombreProducto } from '../utils/nombreProducto';
+import { supabase } from '../supabaseClient';
 
 let pdfjsPromise = null;
 
@@ -374,6 +375,28 @@ async function extraerTextoArchivo(file) {
   return file.text();
 }
 
+async function archivoABase64(file) {
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+  return String(dataUrl).split(',')[1] || '';
+}
+
+async function leerFotoConIa(file) {
+  if (!supabase) throw new Error('Supabase no está configurado.');
+  const imagen = await archivoABase64(file);
+  const { data, error } = await supabase.functions.invoke('leer-ticket-ia', {
+    body: { imagen, tipo: file.type || 'image/jpeg' },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  if (!Array.isArray(data?.items)) throw new Error('La IA no devolvió una lista válida.');
+  return data;
+}
+
 function crearFilaDesdeItem(item, productos) {
   const { producto, score } = buscarMejorProducto(item.producto, productos);
   const estado = score >= 0.88 ? 'existente' : score >= 0.62 ? 'revisar' : 'nuevo';
@@ -423,6 +446,7 @@ export default function StockTicketPdf({ onRegistrarIngreso }) {
   const [leyendo, setLeyendo] = useState(false);
   const [esFoto, setEsFoto] = useState(false);
   const [guardando, setGuardando] = useState(false);
+  const [lectorUsado, setLectorUsado] = useState('');
 
   const resumen = useMemo(() => {
     return filas.reduce((acc, fila) => {
@@ -481,8 +505,25 @@ export default function StockTicketPdf({ onRegistrarIngreso }) {
     setEsFoto(file.type.startsWith('image/'));
 
     try {
-      const texto = await extraerTextoArchivo(file);
-      const items = parsearTicketTexto(texto);
+      let items = [];
+      let proveedorDetectado = '';
+      if (file.type.startsWith('image/')) {
+        try {
+          const resultadoIa = await leerFotoConIa(file);
+          items = resultadoIa.items;
+          proveedorDetectado = resultadoIa.proveedor || '';
+          setLectorUsado('IA de OpenAI');
+        } catch (errorIa) {
+          console.warn('La IA no estuvo disponible; se usa OCR local.', errorIa);
+          const texto = await extraerTextoArchivo(file);
+          items = parsearTicketTexto(texto);
+          setLectorUsado('OCR local (respaldo)');
+        }
+      } else {
+        const texto = await extraerTextoArchivo(file);
+        items = parsearTicketTexto(texto);
+        setLectorUsado('lector de archivo');
+      }
       if (items.length === 0) {
         setFilas([]);
         setError('No pude detectar productos en el ticket. Probá con un PDF que tenga texto seleccionable o un .txt exportado del sistema.');
@@ -490,6 +531,7 @@ export default function StockTicketPdf({ onRegistrarIngreso }) {
       }
 
       setFilas(items.map((item) => crearFilaDesdeItem(item, productos)));
+      if (proveedorDetectado) setProveedorGlobal(proveedorDetectado);
       setMensaje(`Detecté ${items.length} producto${items.length === 1 ? '' : 's'}. Revisá la tabla y confirmá la carga cuando esté bien.`);
     } catch (err) {
       console.warn('No se pudo leer el ticket.', err);
@@ -595,7 +637,7 @@ export default function StockTicketPdf({ onRegistrarIngreso }) {
       <div className="p-4 sm:p-6 space-y-4">
         {archivoNombre && (
           <p className="text-sm text-slate-500">
-            Archivo: <strong>{archivoNombre}</strong>
+            Archivo: <strong>{archivoNombre}</strong>{lectorUsado ? ` · Leído con ${lectorUsado}` : ''}
           </p>
         )}
 
