@@ -576,7 +576,7 @@ export default function StockTicketPdf({ onRegistrarIngreso }) {
           const resultadoIa = await leerFotoConIa(file, productos);
           items = resultadoIa.items;
           proveedorDetectado = resultadoIa.proveedor || '';
-          setLectorUsado('IA de OpenAI');
+          setLectorUsado('IA de Gemini');
         } catch (errorIa) {
           console.warn('La IA no pudo leer la foto.', errorIa);
           throw new Error(`La IA no pudo leer la foto: ${errorIa?.message || 'revisá la función y la clave de OpenAI.'}`);
