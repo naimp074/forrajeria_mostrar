@@ -6,7 +6,7 @@ export default {
     try {
       const apiKey = Deno.env.get('OPENAI_API_KEY')
       if (!apiKey) throw new Error('Falta configurar OPENAI_API_KEY en Supabase.')
-      const { imagen, tipo = 'image/jpeg' } = await req.json()
+      const { imagen, tipo = 'image/jpeg', catalogo = [] } = await req.json()
       if (!imagen) throw new Error('No se recibió ninguna imagen.')
 
       const response = await fetch('https://api.openai.com/v1/responses', {
@@ -15,8 +15,10 @@ export default {
         body: JSON.stringify({
           model: 'gpt-5.4-mini',
           input: [{ role: 'user', content: [
-            { type: 'input_text', text: `Leé con mucho cuidado la tabla de este ticket, factura o presupuesto de una forrajería argentina. Extraé solamente los renglones reales de productos y respetá cada columna: descripción, Cant., Precio, Dcto.% e Importe.
+            { type: 'input_text', text: `Leé con mucho cuidado la tabla de este ticket, factura o presupuesto de una forrajería argentina. Extraé solamente los renglones reales de productos y respetá cada columna: Cód. Art., Descripción, Cant., Precio, Dcto.% e Importe.
 Reglas obligatorias:
+- Cód. Art. es solamente el código del proveedor: nunca lo mezcles con el nombre ni con Cant.
+- Cada renglón visual de la tabla es un producto separado. Nunca juntes dos renglones o productos.
 - precioLista es la columna Precio antes del descuento.
 - precioCompra es el costo unitario NETO: Importe dividido Cant. Usá ese cálculo como valor principal, porque el descuento puede estar aplicado en Importe.
 - Si la descripción dice X 1 KG, X 2,5 KG, X 10KG, X 22KG u otra presentación cerrada, unidad debe ser bolsas, cantidad es la cantidad de bolsas y kgPorUnidad es ese peso.
@@ -25,6 +27,7 @@ Reglas obligatorias:
 - cantidadKgTotal es cantidad por kgPorUnidad para bolsas, o cantidad para kg.
 - Conservá marca, variedad, presentación y peso en producto. No inventes texto ilegible.
 - Los números impresos usan formato argentino: punto de miles y coma decimal. Verificá que cantidad × precioCompra coincida aproximadamente con Importe.` },
+            { type: 'input_text', text: `Catálogo actual de la base de datos:\n${JSON.stringify(catalogo)}\nPara cada fila, si corresponde al mismo producto aunque cambien mayúsculas, acentos, abreviaturas o presentación escrita, copiá exactamente el nombre del catálogo en productoCatalogo. Si realmente no existe, devolvé una cadena vacía. Nunca inventes otra variante de un producto existente.` },
             { type: 'input_image', image_url: `data:${tipo};base64,${imagen}`, detail: 'high' },
           ] }],
           text: { format: {
@@ -36,13 +39,14 @@ Reglas obligatorias:
                 items: { type: 'array', items: {
                   type: 'object',
                   properties: {
-                    producto: { type: 'string' }, cantidad: { type: 'number' },
+                    producto: { type: 'string' }, productoCatalogo: { type: 'string' },
+                    codigoProveedor: { type: 'string' }, cantidad: { type: 'number' },
                     unidad: { type: 'string', enum: ['kg', 'bolsas', 'unidades', 'fardos'] },
                     kgPorUnidad: { type: 'number' }, cantidadKgTotal: { type: 'number' },
                     precioLista: { type: 'number' }, descuentoPorcentaje: { type: 'number' },
                     precioCompra: { type: 'number' }, importe: { type: 'number' },
                   },
-                  required: ['producto', 'cantidad', 'unidad', 'kgPorUnidad', 'cantidadKgTotal', 'precioLista', 'descuentoPorcentaje', 'precioCompra', 'importe'],
+                  required: ['producto', 'productoCatalogo', 'codigoProveedor', 'cantidad', 'unidad', 'kgPorUnidad', 'cantidadKgTotal', 'precioLista', 'descuentoPorcentaje', 'precioCompra', 'importe'],
                   additionalProperties: false,
                 } },
               },

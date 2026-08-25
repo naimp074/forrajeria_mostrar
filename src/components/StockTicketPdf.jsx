@@ -3,7 +3,7 @@ import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import { useProductos } from '../context/ProductosContext';
 import { calcularPrecioVenta, MARGEN_DEFAULT } from '../utils/margenes';
 import { calcularPrecioVentaKg, extraerKgDelNombre, parseNumeroFlexible } from '../utils/preciosKg';
-import { normalizarNombreProducto } from '../utils/nombreProducto';
+import { normalizarNombreProducto, nombresEquivalentes } from '../utils/nombreProducto';
 import { supabase } from '../supabaseClient';
 
 let pdfjsPromise = null;
@@ -385,22 +385,43 @@ async function archivoABase64(file) {
   return String(dataUrl).split(',')[1] || '';
 }
 
-async function leerFotoConIa(file) {
+async function leerFotoConIa(file, productos) {
   if (!supabase) throw new Error('Supabase no está configurado.');
   const imagen = await archivoABase64(file);
   const { data, error } = await supabase.functions.invoke('leer-ticket-ia', {
-    body: { imagen, tipo: file.type || 'image/jpeg' },
+    body: {
+      imagen,
+      tipo: file.type || 'image/jpeg',
+      catalogo: productos.map((producto) => ({
+        nombre: producto.name,
+        unidad: producto.unidad || 'unidades',
+        kgPorUnidad: Number(producto.kgPorUnidad) || 0,
+      })),
+    },
   });
   if (error) throw error;
   if (data?.error) throw new Error(data.error);
   if (!Array.isArray(data?.items)) throw new Error('La IA no devolvió una lista válida.');
+  const filasInvalidas = data.items.filter((item) => {
+    const cantidad = Number(item.cantidad) || 0;
+    const costo = Number(item.precioCompra) || 0;
+    const importe = Number(item.importe) || 0;
+    if (!String(item.producto || '').trim() || cantidad <= 0 || costo <= 0 || importe <= 0) return true;
+    const esperado = cantidad * costo;
+    return Math.abs(esperado - importe) / Math.max(importe, 1) > 0.08;
+  });
+  if (filasInvalidas.length > 0) {
+    throw new Error('La IA detectó columnas mezcladas y canceló la carga para no guardar cantidades o precios incorrectos. Probá una foto más derecha y cercana a la tabla.');
+  }
   return data;
 }
 
 function crearFilaDesdeItem(item, productos) {
-  const { producto, score } = buscarMejorProducto(item.producto, productos);
+  const nombreLeido = item.producto;
+  const nombreSugerido = item.productoCatalogo || nombreLeido;
+  const { producto, score } = buscarMejorProducto(nombreSugerido, productos);
   const estado = score >= 0.88 ? 'existente' : score >= 0.62 ? 'revisar' : 'nuevo';
-  const productoFinal = estado === 'nuevo' ? item.producto : producto?.name || item.producto;
+  const productoFinal = item.productoCatalogo || (estado === 'nuevo' ? nombreLeido : producto?.name || nombreLeido);
   const margen = Number(producto?.margenBolsa ?? MARGEN_DEFAULT);
   const precioCompra = Number(item.precioCompra) || 0;
   const precioVenta = calcularPrecioVenta(precioCompra, margen);
@@ -417,7 +438,7 @@ function crearFilaDesdeItem(item, productos) {
     id: crearId(),
     incluir: true,
     estado,
-    productoTicket: item.producto,
+    productoTicket: nombreLeido,
     productoFinal,
     productoMatch: producto?.name || '',
     confianza: score,
@@ -519,15 +540,13 @@ export default function StockTicketPdf({ onRegistrarIngreso }) {
       let proveedorDetectado = '';
       if (file.type.startsWith('image/')) {
         try {
-          const resultadoIa = await leerFotoConIa(file);
+          const resultadoIa = await leerFotoConIa(file, productos);
           items = resultadoIa.items;
           proveedorDetectado = resultadoIa.proveedor || '';
           setLectorUsado('IA de OpenAI');
         } catch (errorIa) {
-          console.warn('La IA no estuvo disponible; se usa OCR local.', errorIa);
-          const texto = await extraerTextoArchivo(file);
-          items = parsearTicketTexto(texto);
-          setLectorUsado('OCR local (respaldo)');
+          console.warn('La IA no pudo leer la foto.', errorIa);
+          throw new Error(`La IA no pudo leer la foto: ${errorIa?.message || 'revisá la función y la clave de OpenAI.'}`);
         }
       } else {
         const texto = await extraerTextoArchivo(file);
@@ -546,7 +565,7 @@ export default function StockTicketPdf({ onRegistrarIngreso }) {
     } catch (err) {
       console.warn('No se pudo leer el ticket.', err);
       setFilas([]);
-      setError('No se pudo leer el archivo. Si es una foto o un escaneo, primero hay que pasarlo por OCR para convertirlo en texto.');
+      setError(err?.message || 'No se pudo leer el archivo.');
     } finally {
       setLeyendo(false);
     }
@@ -607,8 +626,10 @@ export default function StockTicketPdf({ onRegistrarIngreso }) {
         const cantidad = parseNumeroFlexible(fila.cantidad);
         const precioCompra = parseNumeroFlexible(fila.precioCompra);
         const precioVenta = parseNumeroFlexible(fila.precioVenta) || calcularPrecioVenta(precioCompra, MARGEN_DEFAULT);
+        const nombreNormalizado = normalizarNombreProducto(fila.productoFinal);
+        const productoExistente = productos.find((producto) => nombresEquivalentes(producto.name, nombreNormalizado));
         return onRegistrarIngreso(
-          normalizarNombreProducto(fila.productoFinal),
+          productoExistente?.name || nombreNormalizado,
           cantidad,
           precioCompra,
           precioVenta,
