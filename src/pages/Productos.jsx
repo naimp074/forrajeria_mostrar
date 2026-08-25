@@ -9,6 +9,7 @@ import {
 } from '../services/supabaseData';
 import { usePagination } from '../hooks/usePagination';
 import Paginacion from '../components/Paginacion';
+import StockTicketPdf from '../components/StockTicketPdf';
 import {
   extraerKgDelNombre,
   calcularPrecioCompraKg,
@@ -527,6 +528,46 @@ export default function Productos() {
     }
   };
 
+  const registrarIngresoMasivo = async (
+    nombreProducto,
+    cantidad,
+    precioCompra,
+    precioVenta,
+    proveedor,
+    numeroProveedor,
+    unidadMedida,
+    observacion,
+  ) => {
+    const ingreso = {
+      producto: nombreProducto,
+      cantidad,
+      precioCompra,
+      precioVenta,
+      proveedor: (proveedor || '').trim(),
+      numeroProveedor: (numeroProveedor || '').trim(),
+      unidad: unidadMedida || 'unidades',
+      observacion: (observacion || '').trim(),
+      fecha: fechaHoy(),
+    };
+
+    await registrarIngresoStock(ingreso);
+    setPorProducto((prev) => {
+      const actual = buscarStockProducto(prev, nombreProducto) || {};
+      return {
+        ...prev,
+        [nombreProducto]: {
+          ...actual,
+          cantidadComprada: (Number(actual.cantidadComprada) || 0) + cantidad,
+          cantidadVendida: Number(actual.cantidadVendida) || 0,
+          precioCompra: precioCompra || Number(actual.precioCompra) || 0,
+          precioVenta: precioVenta || Number(actual.precioVenta) || 0,
+        },
+      };
+    });
+    if (proveedor || numeroProveedor) avisarProveedoresActualizados();
+    await recargarProductos();
+  };
+
   return (
     <div className="space-y-6 sm:space-y-8">
       <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight">Productos</h1>
@@ -778,6 +819,8 @@ export default function Productos() {
           ))}
         </div>
       </section>
+
+      <StockTicketPdf onRegistrarIngreso={registrarIngresoMasivo} />
 
       {/* Catálogo */}
       <section>

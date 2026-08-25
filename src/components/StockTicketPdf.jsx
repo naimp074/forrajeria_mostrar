@@ -366,6 +366,11 @@ async function extraerTextoArchivo(file) {
   if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
     return extraerTextoPdf(file);
   }
+  if (file.type.startsWith('image/') || /\.(jpe?g|png|webp|heic)$/i.test(file.name)) {
+    const { recognize } = await import('tesseract.js');
+    const resultado = await recognize(file, 'spa');
+    return resultado.data.text;
+  }
   return file.text();
 }
 
@@ -416,6 +421,7 @@ export default function StockTicketPdf({ onRegistrarIngreso }) {
   const [mensaje, setMensaje] = useState('');
   const [error, setError] = useState('');
   const [leyendo, setLeyendo] = useState(false);
+  const [esFoto, setEsFoto] = useState(false);
   const [guardando, setGuardando] = useState(false);
 
   const resumen = useMemo(() => {
@@ -472,6 +478,7 @@ export default function StockTicketPdf({ onRegistrarIngreso }) {
     setError('');
     setMensaje('');
     setArchivoNombre(file.name);
+    setEsFoto(file.type.startsWith('image/'));
 
     try {
       const texto = await extraerTextoArchivo(file);
@@ -530,11 +537,11 @@ export default function StockTicketPdf({ onRegistrarIngreso }) {
     setMensaje('');
 
     try {
-      seleccionadas.forEach((fila) => {
+      await Promise.all(seleccionadas.map((fila) => {
         const cantidad = parseNumeroFlexible(fila.cantidad);
         const precioCompra = parseNumeroFlexible(fila.precioCompra);
         const precioVenta = parseNumeroFlexible(fila.precioVenta) || calcularPrecioVenta(precioCompra, MARGEN_DEFAULT);
-        onRegistrarIngreso(
+        return onRegistrarIngreso(
           normalizarNombreProducto(fila.productoFinal),
           cantidad,
           precioCompra,
@@ -544,7 +551,7 @@ export default function StockTicketPdf({ onRegistrarIngreso }) {
           fila.unidad || 'unidades',
           fila.observacion || `Importado desde ${archivoNombre || 'ticket/PDF'}`,
         );
-      });
+      }));
 
       setMensaje(`Listo: cargué ${seleccionadas.length} ingreso${seleccionadas.length === 1 ? '' : 's'} de stock.`);
       setFilas([]);
@@ -561,9 +568,9 @@ export default function StockTicketPdf({ onRegistrarIngreso }) {
     <section className="rounded-2xl sm:rounded-[28px] bg-white border border-slate-200 shadow-lg overflow-hidden">
       <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-xl sm:text-2xl font-bold">Importar ticket/PDF</h2>
+          <h2 className="text-xl sm:text-2xl font-bold">Cargar compra desde una foto</h2>
           <p className="text-slate-500 mt-1 text-sm sm:text-base">
-            Subí un ticket de compra, revisá qué detectó y confirmá la carga de stock recién cuando esté correcto.
+            Sacá una foto al ticket o presupuesto. Revisá y editá la lista; no se guarda nada hasta que confirmes.
           </p>
         </div>
         <button
@@ -572,12 +579,13 @@ export default function StockTicketPdf({ onRegistrarIngreso }) {
           disabled={leyendo}
           className="w-full sm:w-auto rounded-2xl border border-emerald-600 bg-emerald-600 text-white px-5 py-3 sm:py-2.5 font-semibold text-sm hover:bg-emerald-700 disabled:opacity-60 transition"
         >
-          {leyendo ? 'Leyendo...' : 'Subir ticket/PDF'}
+          {leyendo ? (esFoto ? 'Leyendo foto...' : 'Leyendo...') : 'Sacar foto o elegir archivo'}
         </button>
         <input
           ref={inputRef}
           type="file"
-          accept=".pdf,.txt,text/plain,application/pdf"
+          accept="image/*,.pdf,.txt,text/plain,application/pdf"
+          capture="environment"
           onChange={handleFileChange}
           className="hidden"
           aria-hidden
