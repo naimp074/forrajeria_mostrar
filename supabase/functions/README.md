@@ -4,7 +4,7 @@ La clave de OpenAI debe configurarse como secreto de Supabase; nunca se agrega a
 
 ```bash
 supabase secrets set OPENAI_API_KEY=sk-...
-supabase functions deploy leer-ticket-ia
+supabase functions deploy quick-task
 ```
 
-La función requiere un usuario autenticado y utiliza `gpt-5-mini` con entrada de imagen y salida JSON estructurada.
+La función publicada en este proyecto se llama `quick-task`, requiere un usuario autenticado y utiliza entrada de imagen con salida JSON estructurada.

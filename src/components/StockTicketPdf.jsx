@@ -388,7 +388,7 @@ async function archivoABase64(file) {
 async function leerFotoConIa(file, productos) {
   if (!supabase) throw new Error('Supabase no está configurado.');
   const imagen = await archivoABase64(file);
-  const { data, error } = await supabase.functions.invoke('leer-ticket-ia', {
+  const { data, error } = await supabase.functions.invoke('quick-task', {
     body: {
       imagen,
       tipo: file.type || 'image/jpeg',
