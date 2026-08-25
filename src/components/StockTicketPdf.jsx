@@ -404,7 +404,14 @@ function crearFilaDesdeItem(item, productos) {
   const margen = Number(producto?.margenBolsa ?? MARGEN_DEFAULT);
   const precioCompra = Number(item.precioCompra) || 0;
   const precioVenta = calcularPrecioVenta(precioCompra, margen);
-  const kgPorUnidad = Number(producto?.kgPorUnidad) || extraerKgDelNombre(productoFinal) || '';
+  const unidadDetectada = ['kg', 'bolsas', 'unidades', 'fardos'].includes(item.unidad)
+    ? item.unidad
+    : 'unidades';
+  const unidad = producto?.unidad || unidadDetectada;
+  const kgPorUnidad = Number(producto?.kgPorUnidad)
+    || Number(item.kgPorUnidad)
+    || extraerKgDelNombre(productoFinal)
+    || (unidad === 'kg' ? 1 : '');
 
   return {
     id: crearId(),
@@ -420,7 +427,9 @@ function crearFilaDesdeItem(item, productos) {
     precioVenta: String(precioVenta),
     kgPorUnidad: kgPorUnidad ? String(kgPorUnidad) : '',
     importe: item.importe,
-    unidad: producto?.unidad || 'unidades',
+    precioLista: Number(item.precioLista) || precioCompra,
+    descuentoPorcentaje: Number(item.descuentoPorcentaje) || 0,
+    unidad,
     proveedor: '',
     numeroProveedor: '',
     observacion: 'Importado desde ticket/PDF',
@@ -447,6 +456,7 @@ export default function StockTicketPdf({ onRegistrarIngreso }) {
   const [esFoto, setEsFoto] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [lectorUsado, setLectorUsado] = useState('');
+  const [margenGlobal, setMargenGlobal] = useState(String(MARGEN_DEFAULT));
 
   const resumen = useMemo(() => {
     return filas.reduce((acc, fila) => {
@@ -555,6 +565,20 @@ export default function StockTicketPdf({ onRegistrarIngreso }) {
       proveedor: proveedorGlobal.trim() || fila.proveedor,
       numeroProveedor: numeroProveedorGlobal.trim() || fila.numeroProveedor,
     })));
+  };
+
+  const aplicarMargenGlobal = () => {
+    const margen = parseNumeroFlexible(margenGlobal);
+    if (!Number.isFinite(margen) || margen < 0) {
+      setError('Ingresá un porcentaje de ganancia válido.');
+      return;
+    }
+    setFilas((prev) => prev.map((fila) => ({
+      ...fila,
+      margenPorcentaje: String(margen),
+      precioVenta: String(calcularPrecioVenta(parseNumeroFlexible(fila.precioCompra), margen)),
+    })));
+    setError('');
   };
 
   const confirmarCarga = async () => {
@@ -704,12 +728,36 @@ export default function StockTicketPdf({ onRegistrarIngreso }) {
               </button>
             </div>
 
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 flex flex-col gap-3 sm:flex-row sm:items-end">
+              <label className="block sm:max-w-xs sm:flex-1">
+                <span className="block text-sm font-semibold text-emerald-800 mb-1">% de ganancia para todos</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={margenGlobal}
+                  onChange={(e) => setMargenGlobal(e.target.value)}
+                  className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2.5 text-slate-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={aplicarMargenGlobal}
+                className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
+              >
+                Aplicar y calcular precios
+              </button>
+              <p className="text-sm text-emerald-800 sm:pb-2">Después podés cambiar el porcentaje o el precio de cada producto.</p>
+            </div>
+
             <div className="space-y-4">
               {filas.map((fila, index) => {
                 const estado = estadoDesdeFila(fila, productos);
                 const configEstado = ESTADOS[estado] || ESTADOS.nuevo;
                 const vistaVenta = calcularVistaVenta(fila);
                 const mostrarKgPorUnidad = fila.unidad !== 'kg' && fila.unidad !== 'unidades';
+                const cantidadKgTotal = fila.unidad === 'kg'
+                  ? parseNumeroFlexible(fila.cantidad)
+                  : parseNumeroFlexible(fila.cantidad) * parseNumeroFlexible(fila.kgPorUnidad);
                 return (
                   <div key={fila.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -742,6 +790,9 @@ export default function StockTicketPdf({ onRegistrarIngreso }) {
                       <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 text-sm sm:text-right">
                         <div className="text-xs font-medium text-slate-500">Importe del ticket</div>
                         <div className="font-bold text-slate-800">{formatMoneda(fila.importe)}</div>
+                        {fila.descuentoPorcentaje > 0 && (
+                          <div className="text-xs font-semibold text-amber-700">Descuento: {fila.descuentoPorcentaje}%</div>
+                        )}
                       </div>
                     </div>
 
@@ -762,7 +813,7 @@ export default function StockTicketPdf({ onRegistrarIngreso }) {
                       </label>
 
                       <label className="block">
-                        <span className="block text-xs font-semibold text-slate-500 mb-1">Cantidad</span>
+                        <span className="block text-xs font-semibold text-slate-500 mb-1">Cantidad comprada</span>
                         <input
                           type="text"
                           inputMode="decimal"
@@ -787,7 +838,7 @@ export default function StockTicketPdf({ onRegistrarIngreso }) {
                       </label>
 
                       <label className="block">
-                        <span className="block text-xs font-semibold text-slate-500 mb-1">Costo unitario</span>
+                        <span className="block text-xs font-semibold text-slate-500 mb-1">Costo neto por unidad</span>
                         <input
                           type="text"
                           inputMode="decimal"
@@ -798,7 +849,7 @@ export default function StockTicketPdf({ onRegistrarIngreso }) {
                       </label>
 
                       <label className="block">
-                        <span className="block text-xs font-semibold text-slate-500 mb-1">% ganancia</span>
+                        <span className="block text-xs font-semibold text-slate-500 mb-1">% ganancia (editable)</span>
                         <input
                           type="text"
                           inputMode="decimal"
@@ -809,7 +860,7 @@ export default function StockTicketPdf({ onRegistrarIngreso }) {
                       </label>
 
                       <label className="block">
-                        <span className="block text-xs font-semibold text-slate-500 mb-1">Precio venta</span>
+                        <span className="block text-xs font-semibold text-slate-500 mb-1">Precio de venta (editable)</span>
                         <input
                           type="text"
                           inputMode="decimal"
@@ -831,6 +882,15 @@ export default function StockTicketPdf({ onRegistrarIngreso }) {
                             className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                           />
                         </label>
+                      )}
+
+                      {(fila.unidad === 'kg' || parseNumeroFlexible(fila.kgPorUnidad) > 0) && (
+                        <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5">
+                          <div className="text-xs font-semibold text-blue-700">Kilos totales comprados</div>
+                          <div className="mt-1 text-lg font-bold text-blue-950">
+                            {cantidadKgTotal.toLocaleString('es-AR', { maximumFractionDigits: 3 })} kg
+                          </div>
+                        </div>
                       )}
 
                       <label className="block">

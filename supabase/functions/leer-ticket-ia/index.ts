@@ -13,9 +13,18 @@ export default {
         method: 'POST',
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'gpt-5-mini',
+          model: 'gpt-5.4-mini',
           input: [{ role: 'user', content: [
-            { type: 'input_text', text: 'Leé este ticket, factura o presupuesto de un proveedor de una forrajería argentina. Extraé solamente los renglones de productos. No inventes datos ilegibles. precioCompra es el costo unitario, no el total. Conservá marca, presentación y peso en el nombre. Los importes usan formato argentino.' },
+            { type: 'input_text', text: `Leé con mucho cuidado la tabla de este ticket, factura o presupuesto de una forrajería argentina. Extraé solamente los renglones reales de productos y respetá cada columna: descripción, Cant., Precio, Dcto.% e Importe.
+Reglas obligatorias:
+- precioLista es la columna Precio antes del descuento.
+- precioCompra es el costo unitario NETO: Importe dividido Cant. Usá ese cálculo como valor principal, porque el descuento puede estar aplicado en Importe.
+- Si la descripción dice X 1 KG, X 2,5 KG, X 10KG, X 22KG u otra presentación cerrada, unidad debe ser bolsas, cantidad es la cantidad de bolsas y kgPorUnidad es ese peso.
+- Si no hay una presentación cerrada y es mercadería suelta típica (avena, burgol, lenteja, almendra, pasas, nuez, coco rallado, etc.), unidad debe ser kg, cantidad es la cantidad de kilos y kgPorUnidad es 1.
+- Usá unidades solo para artículos realmente contados por pieza. Usá fardos únicamente si el texto dice fardo.
+- cantidadKgTotal es cantidad por kgPorUnidad para bolsas, o cantidad para kg.
+- Conservá marca, variedad, presentación y peso en producto. No inventes texto ilegible.
+- Los números impresos usan formato argentino: punto de miles y coma decimal. Verificá que cantidad × precioCompra coincida aproximadamente con Importe.` },
             { type: 'input_image', image_url: `data:${tipo};base64,${imagen}`, detail: 'high' },
           ] }],
           text: { format: {
@@ -28,9 +37,12 @@ export default {
                   type: 'object',
                   properties: {
                     producto: { type: 'string' }, cantidad: { type: 'number' },
+                    unidad: { type: 'string', enum: ['kg', 'bolsas', 'unidades', 'fardos'] },
+                    kgPorUnidad: { type: 'number' }, cantidadKgTotal: { type: 'number' },
+                    precioLista: { type: 'number' }, descuentoPorcentaje: { type: 'number' },
                     precioCompra: { type: 'number' }, importe: { type: 'number' },
                   },
-                  required: ['producto', 'cantidad', 'precioCompra', 'importe'],
+                  required: ['producto', 'cantidad', 'unidad', 'kgPorUnidad', 'cantidadKgTotal', 'precioLista', 'descuentoPorcentaje', 'precioCompra', 'importe'],
                   additionalProperties: false,
                 } },
               },
