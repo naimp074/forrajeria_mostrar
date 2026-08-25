@@ -375,23 +375,56 @@ async function extraerTextoArchivo(file) {
   return file.text();
 }
 
-async function archivoABase64(file) {
-  const dataUrl = await new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-  return String(dataUrl).split(',')[1] || '';
+async function prepararFoto(file) {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const limite = 1800;
+    const escala = Math.min(1, limite / Math.max(bitmap.width, bitmap.height));
+    const width = Math.max(1, Math.round(bitmap.width * escala));
+    const height = Math.max(1, Math.round(bitmap.height * escala));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    bitmap.close();
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.86);
+    return { imagen: dataUrl.split(',')[1] || '', tipo: 'image/jpeg' };
+  } catch (error) {
+    console.warn('No se pudo optimizar la foto; se envía el archivo original.', error);
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+    return { imagen: String(dataUrl).split(',')[1] || '', tipo: file.type || 'image/jpeg' };
+  }
+}
+
+async function mensajeErrorFuncion(error) {
+  try {
+    const response = error?.context;
+    if (response && typeof response.clone === 'function') {
+      const body = await response.clone().json();
+      if (body?.error) return body.error;
+      if (body?.message) return body.message;
+    }
+  } catch {
+    // Se conserva el mensaje original si la respuesta no contiene JSON.
+  }
+  return error?.message || 'La función de Supabase devolvió un error.';
 }
 
 async function leerFotoConIa(file, productos) {
   if (!supabase) throw new Error('Supabase no está configurado.');
-  const imagen = await archivoABase64(file);
+  const { imagen, tipo } = await prepararFoto(file);
   const { data, error } = await supabase.functions.invoke('quick-task', {
     body: {
       imagen,
-      tipo: file.type || 'image/jpeg',
+      tipo,
       catalogo: productos.map((producto) => ({
         nombre: producto.name,
         unidad: producto.unidad || 'unidades',
@@ -399,7 +432,7 @@ async function leerFotoConIa(file, productos) {
       })),
     },
   });
-  if (error) throw error;
+  if (error) throw new Error(await mensajeErrorFuncion(error));
   if (data?.error) throw new Error(data.error);
   if (!Array.isArray(data?.items)) throw new Error('La IA no devolvió una lista válida.');
   const filasInvalidas = data.items.filter((item) => {
