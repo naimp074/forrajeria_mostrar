@@ -56,6 +56,10 @@ function iconoMenu(path) {
       return (
         <svg {...props}><path {...stroke} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" /></svg>
       );
+    case '/catalogo':
+      return (
+        <svg {...props}><path {...stroke} d="M4 5a2 2 0 012-2h12a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 11l3-3 2 2 3-4 2 5H7zm1-8h.01" /></svg>
+      );
     case '/promos':
       return (
         <svg {...props}><path {...stroke} d="M20 12v7a2 2 0 01-2 2H6a2 2 0 01-2-2v-7m16 0H4m16 0v-2a2 2 0 00-2-2h-3.5M4 12v-2a2 2 0 012-2h3.5m0 0A2.5 2.5 0 117 5.5C7 7 9.5 8 9.5 8zm5 0A2.5 2.5 0 1017 5.5C17 7 14.5 8 14.5 8zM12 8v13" /></svg>

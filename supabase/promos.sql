@@ -21,8 +21,31 @@ create table if not exists public.promo_items (
   cantidad numeric not null default 1,
   costo_unitario numeric not null default 0,
   precio_normal_unitario numeric not null default 0,
+  descuento_porcentaje numeric not null default 0 check (descuento_porcentaje between 0 and 100),
   created_at timestamptz not null default now()
 );
+
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'promo_items'
+      and column_name = 'descuento_porcentaje'
+  ) then
+    alter table public.promo_items
+      add column descuento_porcentaje numeric not null default 0
+      check (descuento_porcentaje between 0 and 100);
+
+    -- Conserva el precio final de las promos creadas con el sistema anterior.
+    update public.promo_items pi
+    set descuento_porcentaje = greatest(0, least(100,
+      (1 - p.precio_promo / nullif(p.precio_normal_total, 0)) * 100
+    ))
+    from public.promos p
+    where p.id = pi.promo_id and p.precio_normal_total > 0;
+  end if;
+end $$;
 
 alter table public.promos enable row level security;
 alter table public.promo_items enable row level security;
@@ -42,4 +65,3 @@ create policy "authenticated_all_promo_items"
   to authenticated
   using (true)
   with check (true);
-

@@ -17,6 +17,7 @@ import {
   stockUnidadesADisponibleKg,
   kgVendidosAUnidadesInventario,
 } from '../utils/preciosKg';
+import { recalcularPromos } from '../utils/promos';
 
 const IconoBuscar = () => (
   <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -174,9 +175,10 @@ export default function VentaRapida() {
 
   const promosFiltradas = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
-    if (!q) return promosGuardadas;
-    return promosGuardadas.filter((promo) => promo.nombre.toLowerCase().includes(q));
-  }, [busqueda, promosGuardadas]);
+    const actualizadas = recalcularPromos(promosGuardadas, productos, porProducto);
+    if (!q) return actualizadas;
+    return actualizadas.filter((promo) => promo.nombre.toLowerCase().includes(q));
+  }, [busqueda, promosGuardadas, productos, porProducto]);
 
   const productosConStock = useMemo(() => {
     return productosFiltrados.map((producto) => {

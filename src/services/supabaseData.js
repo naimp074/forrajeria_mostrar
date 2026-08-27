@@ -15,6 +15,24 @@ function requireSupabase() {
   return supabase;
 }
 
+const IMAGEN_OBSERVACION_RE = /\[imagen:([^\]]+)\]\s*/;
+
+function extraerImagenDeObservacion(observacion) {
+  return String(observacion || '').match(IMAGEN_OBSERVACION_RE)?.[1]?.trim() || '';
+}
+
+function observacionConImagen(observacion, imagenUrl) {
+  const limpia = String(observacion || '').replace(IMAGEN_OBSERVACION_RE, '').trim();
+  const url = String(imagenUrl || '').trim();
+  if (!url) return limpia || null;
+  return limpia ? `${limpia} [imagen:${url}]` : `[imagen:${url}]`;
+}
+
+function faltaColumnaImagen(error) {
+  const mensaje = String(error?.message || error?.details || '').toLowerCase();
+  return mensaje.includes('imagen_url') && (mensaje.includes('column') || mensaje.includes('schema cache'));
+}
+
 function mapGasto(row) {
   return {
     id: row.id,
@@ -35,6 +53,7 @@ function mapPromoItem(row) {
     cantidad: Number(row.cantidad) || 1,
     costo: Number(row.costo_unitario) || 0,
     precioNormal: Number(row.precio_normal_unitario) || 0,
+    descuento: row.descuento_porcentaje == null ? null : Number(row.descuento_porcentaje) || 0,
   };
 }
 
@@ -93,6 +112,10 @@ function buildProductoDbRow(producto, { includeMargenes = true } = {}) {
     favorito: Boolean(producto.favorito),
     updated_at: new Date().toISOString(),
   };
+
+  if (Object.prototype.hasOwnProperty.call(producto, 'imagenUrl')) {
+    row.imagen_url = producto.imagenUrl || null;
+  }
 
   if (includeMargenes) {
     row.kg_por_unidad = producto.kgPorUnidad != null && Number(producto.kgPorUnidad) > 0
@@ -159,7 +182,8 @@ function mapProducto(row) {
     unidad,
     proveedor: row.proveedor_nombre || '',
     numeroProveedor: row.proveedor_telefono || '',
-    observacion: limpiarObservacionParaMostrar(row.observacion),
+    observacion: limpiarObservacionParaMostrar(String(row.observacion || '').replace(IMAGEN_OBSERVACION_RE, '')),
+    imagenUrl: row.imagen_url || extraerImagenDeObservacion(row.observacion),
     favorite: Boolean(row.favorito),
     activo: row.activo !== false,
   };
@@ -371,7 +395,40 @@ function mapCatalogoPublicoRow(row) {
     precioKg: enriquecido.precioKg,
     unidad: producto.unidad,
     kgPorUnidad,
+    imagenUrl: row.imagen_url || extraerImagenDeObservacion(row.observacion),
   };
+
+}
+
+export async function actualizarImagenProducto(id, imagenUrl) {
+  const client = requireSupabase();
+  const resultado = await client
+    .from('productos')
+    .update({ imagen_url: String(imagenUrl || '').trim() || null, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select('*')
+    .single();
+  if (!resultado.error) return mapProducto(resultado.data);
+  if (!faltaColumnaImagen(resultado.error)) throw resultado.error;
+
+  const { data: actual, error: lecturaError } = await client
+    .from('productos')
+    .select('observacion')
+    .eq('id', id)
+    .single();
+  if (lecturaError) throw lecturaError;
+
+  const { data, error } = await client
+    .from('productos')
+    .update({
+      observacion: observacionConImagen(actual?.observacion, imagenUrl),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return mapProducto(data);
 }
 
 /** Catálogo para /pedir (sin login). Usa RPC listar_catalogo_publico en Supabase. */
@@ -559,6 +616,7 @@ export async function crearPromo(promo) {
     cantidad: Number(item.cantidad) || 1,
     costo_unitario: Number(item.costo) || 0,
     precio_normal_unitario: Number(item.precioNormal) || 0,
+    descuento_porcentaje: Number(item.descuento) || 0,
   }));
 
   if (items.length > 0) {
@@ -573,6 +631,39 @@ export async function crearPromo(promo) {
     .single();
   if (completaError) throw completaError;
   return mapPromo(completa);
+}
+
+export async function actualizarPromo(id, promo) {
+  const client = requireSupabase();
+  const { error } = await client.from('promos').update({
+    nombre: promo.nombre,
+    costo_total: Number(promo.costoTotal) || 0,
+    precio_normal_total: Number(promo.precioNormalTotal) || 0,
+    margen_promo: 0,
+    precio_promo: Number(promo.precioPromo) || 0,
+    ganancia_promo: Number(promo.gananciaPromo) || 0,
+  }).eq('id', id);
+  if (error) throw error;
+
+  const { error: borrarItemsError } = await client.from('promo_items').delete().eq('promo_id', id);
+  if (borrarItemsError) throw borrarItemsError;
+  const items = (promo.items || []).map((item) => ({
+    promo_id: id,
+    producto_id: item.productoId || null,
+    producto_nombre: item.nombre,
+    unidad: item.unidad || 'bolsas',
+    cantidad: Number(item.cantidad) || 1,
+    costo_unitario: Number(item.costo) || 0,
+    precio_normal_unitario: Number(item.precioNormal) || 0,
+    descuento_porcentaje: Number(item.descuento) || 0,
+  }));
+  if (items.length) {
+    const { error: itemsError } = await client.from('promo_items').insert(items);
+    if (itemsError) throw itemsError;
+  }
+  const { data, error: completaError } = await client.from('promos').select('*, promo_items(*)').eq('id', id).single();
+  if (completaError) throw completaError;
+  return mapPromo(data);
 }
 
 export async function borrarPromo(id) {
